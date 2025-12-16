@@ -1,0 +1,79 @@
+import streamlit as st
+import subprocess
+import os
+
+# Set page title
+st.set_page_config(page_title="Rsync File Retriever", page_icon="\U0001f504")
+
+# App title
+st.title("\U0001f504 Rsync File Retriever from Spartan HPC")
+
+st.write("Click the button to retrieve the latest PNG file from Spartan HPC!")
+
+# Display the command that will be executed
+st.subheader("Command to Execute:")
+command = """rsync -avz earles@spartan.hpc.unimelb.edu.au:$(ssh earles@spartan.hpc.unimelb.edu.au 'ls -t /data/gpfs/projects/punim1378/earles/Precal_GUI/*.png | head -n 1') plots/"""
+
+st.code(command, language="bash")
+
+# Create a button to execute command
+if st.button("Fetch Latest PNG File", type="primary"):
+    st.info("\U0001f504 Executing rsync command... This may take a moment.")
+    
+    try:
+        # Execute the bash command
+        result = subprocess.run(
+            command,
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=120  # 2 minute timeout for network operations
+        )
+        
+        # Display output
+        if result.returncode == 0:
+            st.success("\u2705 File retrieved successfully!")
+        else:
+            st.warning("\u26a0\ufe0f Command completed with errors")
+        
+        if result.stdout:
+            st.subheader("Output:")
+            st.code(result.stdout, language="bash")
+        
+        if result.stderr:
+            st.subheader("Messages:")
+            st.code(result.stderr, language="bash")
+        
+        st.info(f"Return code: {result.returncode}")
+        
+        # Try to display the latest file
+        plots_dir = "/home/shayne/Documents/Precal_GUI/plots/"
+        if os.path.exists(plots_dir):
+            png_files = [f for f in os.listdir(plots_dir) if f.endswith('.png')]
+            if png_files:
+                latest_file = max([os.path.join(plots_dir, f) for f in png_files], key=os.path.getmtime)
+                st.subheader("Latest Retrieved File:")
+                st.image(latest_file, caption=os.path.basename(latest_file))
+        
+    except subprocess.TimeoutExpired:
+        st.error("\u274c Command timed out (exceeded 2 minutes)")
+    except Exception as e:
+        st.error(f"\u274c Error executing command: {str(e)}")
+
+# Display existing files in the plots directory
+st.divider()
+st.subheader("Files in Local Plots Directory")
+
+plots_dir = "/home/shayne/Documents/Precal_GUI/plots/"
+if os.path.exists(plots_dir):
+    png_files = sorted([f for f in os.listdir(plots_dir) if f.endswith('.png')], 
+                       key=lambda x: os.path.getmtime(os.path.join(plots_dir, x)), 
+                       reverse=True)
+    if png_files:
+        st.write(f"Found {len(png_files)} PNG file(s):")
+        for f in png_files:
+            st.text(f)
+    else:
+        st.info("No PNG files found in the plots directory yet.")
+else:
+    st.warning(f"Directory does not exist: {plots_dir}")
