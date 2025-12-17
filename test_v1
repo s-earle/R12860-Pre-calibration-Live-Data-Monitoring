@@ -3,38 +3,97 @@ import subprocess
 import os
 
 # Set page title
-st.set_page_config(page_title="Rsync File Retriever", page_icon="\U0001f504")
+st.set_page_config(page_title="Rsync File Retriever", page_icon="🔄")
 
 # App title
-st.title("\U0001f504 Rsync File Retriever from Spartan HPC")
+st.title("Live Data Monitoring")
 
-st.write("Click the button to retrieve the latest PNG file from Spartan HPC!")
+st.write("Sync with Spartan HPC for processed charge result")
 
-# Display the command that will be executed
-st.subheader("Command to Execute:")
-command = """rsync -avz earles@spartan.hpc.unimelb.edu.au:$(ssh earles@spartan.hpc.unimelb.edu.au 'ls -t /data/gpfs/projects/punim1378/earles/Precal_GUI/*.png | head -n 1') plots/"""
+if "rsync_command" not in st.session_state:
+    st.session_state.rsync_command = (
+        "rsync -avz "
+        "earles@spartan.hpc.unimelb.edu.au:"
+        "$(ssh earles@spartan.hpc.unimelb.edu.au "
+        "'ls -t /data/gpfs/projects/punim1378/earles/Precal_GUI/*.png | head -n 1') "
+        "plots/"
+    )
 
-st.code(command, language="bash")
+if "remote_directory" not in st.session_state:
+    st.session_state.remote_directory = "/data/gpfs/projects/punim1378/earles/Precal_GUI"
 
-# Create a button to execute command
-if st.button("Fetch Latest PNG File", type="primary"):
-    st.info("\U0001f504 Executing rsync command... This may take a moment.")
+if "remote_command" not in st.session_state:
+    st.session_state.remote_command = "sbatch ./RUN.slurm"
+
+# Show configuration
+with st.expander("Configure Remote Execution"):
+    st.session_state.remote_directory = st.text_input(
+        "Remote Directory",
+        value=st.session_state.remote_directory
+    )
+    st.session_state.remote_command = st.text_input(
+        "Command to Execute",
+        value=st.session_state.remote_command
+    )
+
+
+if st.button("Execute on Spartan", type="primary"):
+    st.info("Executing command on Spartan...")
+    
+    # Build the SSH command that changes directory and runs the command
+    ssh_command = (
+        f"ssh earles@spartan.hpc.unimelb.edu.au "
+        f"'cd {st.session_state.remote_directory} && {st.session_state.remote_command}'"
+    )
+    
+    st.code(ssh_command, language="bash")
     
     try:
-        # Execute the bash command
         result = subprocess.run(
-            command,
+            ssh_command,
             shell=True,
             capture_output=True,
             text=True,
-            timeout=120  # 2 minute timeout for network operations
+            timeout=120
         )
         
+        if result.returncode == 0:
+            st.success("✅ Command executed successfully!")
+        else:
+            st.warning("⚠️ Command completed with errors")
+        
+        if result.stdout:
+            st.subheader("Output:")
+            st.code(result.stdout, language="bash")
+        
+        if result.stderr:
+            st.subheader("Errors/Messages:")
+            st.code(result.stderr, language="bash")
+        
+        st.info(f"Return code: {result.returncode}")
+            
+    except subprocess.TimeoutExpired:
+        st.error("❌ Command timed out (exceeded 2 minutes)")
+    except Exception as e:
+        st.error(f"❌ Error: {str(e)}")
+
+if st.button("Sync", type="primary"):
+    st.info("Executing sync... This may take a moment.")
+    
+    try:
+        result = subprocess.run(
+            st.session_state.rsync_command,
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=120
+        )
+
         # Display output
         if result.returncode == 0:
-            st.success("\u2705 File retrieved successfully!")
+            st.success("File retrieved successfully!")
         else:
-            st.warning("\u26a0\ufe0f Command completed with errors")
+            st.warning("Command completed with errors")
         
         if result.stdout:
             st.subheader("Output:")
@@ -47,7 +106,7 @@ if st.button("Fetch Latest PNG File", type="primary"):
         st.info(f"Return code: {result.returncode}")
         
         # Try to display the latest file
-        plots_dir = "/home/shayne/Documents/Precal_GUI/plots/"
+        plots_dir = "plots/"
         if os.path.exists(plots_dir):
             png_files = [f for f in os.listdir(plots_dir) if f.endswith('.png')]
             if png_files:
@@ -56,15 +115,146 @@ if st.button("Fetch Latest PNG File", type="primary"):
                 st.image(latest_file, caption=os.path.basename(latest_file))
         
     except subprocess.TimeoutExpired:
-        st.error("\u274c Command timed out (exceeded 2 minutes)")
+        st.error("ERROR: Command timed out (exceeded 2 minutes)")
     except Exception as e:
-        st.error(f"\u274c Error executing command: {str(e)}")
+        st.error(f"ERROR executing command: {str(e)}")
 
-# Display existing files in the plots directory
+if st.button("Show sync command"):
+    st.subheader("Rsync command:")
+    st.code(st.session_state.rsync_command, language="bash")
+
+
+st.divider()
+st.subheader("Recent Scan Data")
+
+plots_dir = "plots"
+N_COLS = 4
+N_ROWS = 5
+MAX_PLOTS = N_COLS * N_ROWS
+
+if "selected_plot" not in st.session_state:
+    st.session_state.selected_plot = None
+
+# --- always collect pngs (even if empty) ---
+if os.path.exists(plots_dir):
+    png_files = [
+        os.path.join(plots_dir, f)
+        for f in os.listdir(plots_dir)
+        if f.endswith(".png")
+    ]
+else:
+    png_files = []
+
+if not os.path.exists(plots_dir):
+    st.warning(f"Directory does not exist: {plots_dir}")
+
+# newest → oldest
+png_files = sorted(png_files, key=os.path.getmtime, reverse=True)
+png_files = png_files[:MAX_PLOTS]
+
+# --- grid: newest appears bottom-right ---
+slot = 0
+num_files = len(png_files)
+
+# Custom CSS injected once before the grid
+st.markdown("""
+<style>
+    .grid-container {
+        display: grid;
+        gap: 10px;
+    }
+    .grid-button {
+        background-color: #28a745;
+        color: white;
+        padding: 30px 10px;
+        text-align: center;
+        border-radius: 5px;
+        font-weight: bold;
+        font-size: 16px;
+        cursor: pointer;
+        border: 2px solid transparent;
+        transition: all 0.3s;
+        min-height: 100px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+    }
+    .grid-button:hover {
+        border-color: #0066cc;
+        opacity: 0.9;
+        background-color: #218838;
+    }
+    .no-data-box {
+        background-color: #ffc107;
+        color: #333;
+        padding: 30px 10px;
+        text-align: center;
+        border-radius: 5px;
+        font-weight: bold;
+        font-size: 16px;
+        border: 1px solid #e0a800;
+        min-height: 100px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    .filename-small {
+        font-size: 10px;
+        margin-top: 5px;
+        opacity: 0.9;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+for row in range(N_ROWS):
+    cols = st.columns(N_COLS)
+    for col in cols:
+        file_idx = num_files - 1 - slot
+
+        with col:
+            if 0 <= file_idx < num_files:
+                img_path = png_files[file_idx]
+                filename = os.path.basename(img_path)
+                
+                # Create clickable HTML button
+                button_id = f"btn_{slot}"
+                st.markdown(
+                    f"""
+                    <div class="grid-button">
+                        <div>Healthy</div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+                
+                # Streamlit button for actual functionality (small button below)
+                if st.button("View", key=f"view_{slot}", use_container_width=True):
+                    st.session_state.selected_plot = img_path
+                
+            else:
+                # Yellow box for no data
+                st.markdown(
+                    '<div class="no-data-box">⚠ No Data</div>',
+                    unsafe_allow_html=True
+                )
+
+        slot += 1
+
+if st.session_state.selected_plot:
+    st.divider()
+    st.subheader("Selected Data")
+    st.image(
+        st.session_state.selected_plot,
+        use_container_width=True,
+        caption=os.path.basename(st.session_state.selected_plot)
+    )
+
+    # Display existing files in the plots directory
 st.divider()
 st.subheader("Files in Local Plots Directory")
 
-plots_dir = "/home/shayne/Documents/Precal_GUI/plots/"
+plots_dir = "plots/"
 if os.path.exists(plots_dir):
     png_files = sorted([f for f in os.listdir(plots_dir) if f.endswith('.png')], 
                        key=lambda x: os.path.getmtime(os.path.join(plots_dir, x)), 
@@ -74,6 +264,6 @@ if os.path.exists(plots_dir):
         for f in png_files:
             st.text(f)
     else:
-        st.info("No PNG files found in the plots directory yet.")
+        st.info("No files found in the plots directory yet.")
 else:
     st.warning(f"Directory does not exist: {plots_dir}")
