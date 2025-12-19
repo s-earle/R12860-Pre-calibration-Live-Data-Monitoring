@@ -1,8 +1,12 @@
 import streamlit as st
+from streamlit_autorefresh import st_autorefresh
 import subprocess
 import os
 import time
 import json
+import threading
+import signal
+import sys
 
 # Set page title
 st.set_page_config(page_title="Rsync File Retriever", page_icon="🔄")
@@ -14,6 +18,7 @@ st.write("Sync with Spartan HPC for processed charge result")
 
 CONFIG_FILE = "executor_config.json"
 STATUS_FILE = "executor_status.json"
+EXECUTOR_PID_FILE = "executor_pid.txt"
 
 # Function to clean up old files
 def cleanup_old_plots(directory, max_age_hours):
@@ -95,6 +100,64 @@ def save_config(config):
     with open(CONFIG_FILE, 'w') as f:
         json.dump(config, f, indent=2)
 
+def start_background_executor():
+    """Start the background executor as a subprocess"""
+    try:
+        # Start the background executor
+        process = subprocess.Popen(
+            [sys.executable, "background_executor.py"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True
+        )
+        
+        # Save the PID
+        with open(EXECUTOR_PID_FILE, 'w') as f:
+            f.write(str(process.pid))
+        
+        return True, process.pid
+    except Exception as e:
+        return False, str(e)
+
+def check_executor_running():
+    """Check if background executor is running"""
+    if not os.path.exists(EXECUTOR_PID_FILE):
+        return False
+    
+    try:
+        with open(EXECUTOR_PID_FILE, 'r') as f:
+            pid = int(f.read().strip())
+        
+        # Check if process is still running
+        os.kill(pid, 0)
+        return True
+    except (OSError, ValueError):
+        # Process doesn't exist or invalid PID
+        if os.path.exists(EXECUTOR_PID_FILE):
+            os.remove(EXECUTOR_PID_FILE)
+        return False
+
+def stop_background_executor():
+    """Stop the background executor"""
+    if not os.path.exists(EXECUTOR_PID_FILE):
+        return True, "Executor not running"
+    
+    try:
+        with open(EXECUTOR_PID_FILE, 'r') as f:
+            pid = int(f.read().strip())
+        
+        # Terminate the process
+        os.kill(pid, signal.SIGTERM)
+        time.sleep(0.5)
+        
+        # Clean up PID file
+        if os.path.exists(EXECUTOR_PID_FILE):
+            os.remove(EXECUTOR_PID_FILE)
+        
+        return True, "Executor stopped"
+    except Exception as e:
+        return False, str(e)
+
 if "remote_host" not in st.session_state:
     st.session_state.remote_host = "earles@spartan.hpc.unimelb.edu.au"
 
@@ -112,6 +175,59 @@ if "selected_plot" not in st.session_state:
 
 # Automatic cleanup on page load
 cleanup_old_plots("plots/", st.session_state.cleanup_time_hours)
+
+# Check background executor status
+status = load_status()
+is_running = bool(status and status.get('running', False))
+executor_alive = check_executor_running()
+
+# Auto-refresh when background executor is running
+if is_running:
+    # Refresh every 5 seconds (5000 milliseconds)
+    st_autorefresh(interval=5000, key="datarefresh")
+
+# Background Executor Status
+st.sidebar.header("🔧 Background Executor")
+if executor_alive:
+    st.sidebar.success("✅ Running")
+else:
+    st.sidebar.warning("⚠️ Not Running")
+
+col_exec1, col_exec2 = st.sidebar.columns(2)
+with col_exec1:
+    if st.button("▶️ Start", disabled=executor_alive, use_container_width=True):
+        success, result = start_background_executor()
+        if success:
+            st.success(f"✅ Executor started (PID: {result})")
+            time.sleep(1)
+            st.rerun()
+        else:
+            st.error(f"❌ Failed to start: {result}")
+
+with col_exec2:
+    if st.button("⏹️ Stop", disabled=not executor_alive, use_container_width=True):
+        success, msg = stop_background_executor()
+        if success:
+            st.success(f"✅ {msg}")
+            time.sleep(1)
+            st.rerun()
+        else:
+            st.error(f"❌ Failed: {msg}")
+
+if st.sidebar.button("Reset All", type="secondary", use_container_width=True):
+    # Stop executor
+    stop_background_executor()
+    
+    # Clean up all status files
+    for file in [CONFIG_FILE, STATUS_FILE, EXECUTOR_PID_FILE]:
+        if os.path.exists(file):
+            os.remove(file)
+    
+    st.sidebar.success("Reset complete!")
+    time.sleep(1)
+    st.rerun()
+
+st.sidebar.divider()
 
 # Show configuration
 with st.expander("Configure Remote Execution"):
@@ -142,7 +258,7 @@ with st.expander("Configure Auto-Cleanup"):
     if st.button("Clean Up Now"):
         deleted = cleanup_old_plots("plots/", st.session_state.cleanup_time_hours)
         if deleted > 0:
-            st.success(f"✅ Deleted {deleted} old plot file(s)")
+            st.success(f"Deleted {deleted} old plot file(s)")
         else:
             st.info("No old files to delete")
     
@@ -156,23 +272,54 @@ with st.expander("Configure Auto-Cleanup"):
                         count += 1
                     except Exception as e:
                         st.error(f"Error deleting {f}: {str(e)}")
-            st.success(f"✅ Deleted all {count} plot files")
+            st.success(f"Deleted all {count} plot files")
         else:
             st.warning("Plots directory doesn't exist")
 
-# Check background executor status
-status = load_status()
-is_running = bool(status and status.get('running', False))
-
 if is_running:
-    st.info(f"🔄 Background executor running: {status.get('message', 'Processing...')}")
+    st.info(f"Background executor running: {status.get('message', 'Processing...')}")
     if status.get('total'):
         progress = status.get('completed', 0) / status['total']
         st.progress(progress)
         st.write(f"Completed: {status.get('completed', 0)}/{status['total']}")
 
-if st.button("Execute on Spartan Once", type="primary", disabled=is_running, use_container_width=True):
-    st.info("🔄 Syncing files from Spartan...")
+
+if st.button("Start Auto-Execute (21 runs)", type="primary", disabled=is_running or not executor_alive, use_container_width=True):
+    config = {
+        'running': True,
+        'remote_host': st.session_state.remote_host,
+        'remote_directory': st.session_state.remote_directory,
+        'remote_command': st.session_state.remote_command,
+        'total_runs': 21,
+        'interval_seconds': 60
+    }
+    save_config(config)
+    st.success("Auto-execute started!")
+    time.sleep(1)
+    st.rerun()
+
+if st.button("Stop Auto-Execute", type="primary", disabled=not is_running, use_container_width=True):
+    # Just stop the auto-execute, keep executor running
+    if os.path.exists(CONFIG_FILE):
+        config = load_status()
+        if config:
+            config['running'] = False
+            save_config(config)
+    
+    if os.path.exists(STATUS_FILE):
+        status = load_status()
+        if status:
+            status['running'] = False
+            status['message'] = 'Stopped by user'
+            with open(STATUS_FILE, 'w') as f:
+                json.dump(status, f, indent=2)
+    
+    st.success("Auto-execute stopped (executor still running)")
+    time.sleep(1)
+    st.rerun()
+
+if st.button("Execute on Spartan Once", type="secondary", disabled=is_running or not executor_alive, use_container_width=True):
+    st.info("Syncing files from Spartan...")
     sync_from_spartan(st.session_state.remote_host, st.session_state.remote_directory)
     
     st.info("Executing command on Spartan...")
@@ -194,9 +341,9 @@ if st.button("Execute on Spartan Once", type="primary", disabled=is_running, use
         )
         
         if result.returncode == 0:
-            st.success("✅ Command executed successfully!")
+            st.success("Command executed successfully!")
         else:
-            st.warning("⚠️ Command completed with errors")
+            st.warning("Command completed with errors")
         
         if result.stdout:
             st.subheader("Output:")
@@ -213,68 +360,18 @@ if st.button("Execute on Spartan Once", type="primary", disabled=is_running, use
     except Exception as e:
         st.error(f"❌ Error: {str(e)}")
 
-col1, col2 = st.columns(2)
 
-with col1:
-    if st.button("Start Auto-Execute (21 runs)", type="secondary", disabled=is_running, use_container_width=True):
-        config = {
-            'running': True,
-            'remote_host': st.session_state.remote_host,
-            'remote_directory': st.session_state.remote_directory,
-            'remote_command': st.session_state.remote_command,
-            'total_runs': 21,
-            'interval_seconds': 60
-        }
-        save_config(config)
-        st.success("✅ Background executor started! Make sure background_executor.py is running.")
-        st.info("Run in terminal: `python background_executor.py`")
-        time.sleep(1)
-        st.rerun()
-
-with col2:
-    if st.button("🛑 Stop Auto-Execute", type="primary", disabled=not is_running, use_container_width=True):
-        # Clear both config and status files
-        if os.path.exists(CONFIG_FILE):
-            os.remove(CONFIG_FILE)
-        if os.path.exists(STATUS_FILE):
-            os.remove(STATUS_FILE)
-        st.success("✅ Auto-execute stopped and files cleaned up")
-        time.sleep(1)
-        st.rerun()
-
-# Auto-refresh when background executor is running
+# Show refresh controls when running
 if is_running:
-    st.info("💡 Page auto-refreshes every 5 seconds. All buttons remain clickable!")
-    col_r1, col_r2 = st.columns(2)
-    with col_r1:
-        if st.button("🔄 Refresh Now", use_container_width=True):
-            st.rerun()
-    with col_r2:
-        if st.button("⚠️ Force Reset (if stuck)", type="secondary", use_container_width=True):
-            if os.path.exists(CONFIG_FILE):
-                os.remove(CONFIG_FILE)
-            if os.path.exists(STATUS_FILE):
-                os.remove(STATUS_FILE)
-            st.success("✅ Reset complete")
-            st.rerun()
-    
-    # JavaScript auto-refresh without blocking
-    st.components.v1.html(
-        """
-        <script>
-        setTimeout(function() {
-            window.parent.location.reload();
-        }, 5000);
-        </script>
-        """,
-        height=0
-    )
+    st.info("Page auto-refreshes every 5 seconds. All buttons remain clickable!")
+    if st.button("Refresh Now", use_container_width=True):
+        st.rerun()
 
 if st.button("Sync", type="primary"):
     st.info("Executing sync... This may take a moment.")
     
     if sync_from_spartan(st.session_state.remote_host, st.session_state.remote_directory):
-        st.success("✅ Sync completed successfully!")
+        st.success("Sync completed successfully!")
     else:
         st.warning("⚠️ Sync completed with issues")
     
