@@ -10,3 +10,9 @@ The main idea of the workflow will be:
   -> Process that data to a useful metric -- A measure of data quality -- or even just something simple but understandable to a non-expert
   
   -> Output results in a GUI on screen -- merged with Han's GUI. 
+
+Currently v3_full_auto works well. Requirements:
+
+pip install streamlit-autorefresh
+
+Need to run background_executor in pop-up side menu
