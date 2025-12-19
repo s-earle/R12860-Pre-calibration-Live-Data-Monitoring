@@ -64,7 +64,7 @@ def sync_from_spartan(remote_host, remote_dir, local_dir="plots/"):
         remote_file = check_result.stdout.strip()
         
         if not remote_file:
-            st.info("ℹ️ No PNG files found on remote server yet")
+            st.info("No PNG files found on remote server yet")
             return True
         
         rsync_command = f"rsync -avz {remote_host}:{remote_file} {local_dir}"
@@ -187,7 +187,7 @@ if is_running:
     st_autorefresh(interval=5000, key="datarefresh")
 
 # Background Executor Status
-st.sidebar.header("🔧 Background Executor")
+st.sidebar.header("Background Executor")
 if executor_alive:
     st.sidebar.success("✅ Running")
 else:
