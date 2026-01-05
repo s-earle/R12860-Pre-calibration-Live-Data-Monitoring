@@ -8,10 +8,10 @@ import threading
 import signal
 import sys
 
-# Set page title
+
 st.set_page_config(page_title="Rsync File Retriever", page_icon="🔄")
 
-# App title
+
 st.title("Live Data Monitoring")
 
 st.write("Sync with Spartan HPC for processed charge result")
@@ -20,7 +20,7 @@ CONFIG_FILE = "executor_config.json"
 STATUS_FILE = "executor_status.json"
 EXECUTOR_PID_FILE = "executor_pid.txt"
 
-# Function to clean up old files
+# *---- Remove old data: --------------------------------------------------------------------------*
 def cleanup_old_plots(directory, max_age_hours):
     """Delete plot files older than max_age_hours"""
     if not os.path.exists(directory):
@@ -44,12 +44,17 @@ def cleanup_old_plots(directory, max_age_hours):
     
     return deleted_count
 
-# Function to perform sync with better error handling
+# *---- Performing sync: --------------------------------------------------------------------------*
+# |     Here we look to a remote server (currently Spartan at unimelb) and sync the data outputs   |
+# |     from a specific directory. The code is written to use a directory I (S.Earle) made         |
+# |     however this can be changed in the GUI or changed here in the backend code.                |
+# |     We could as easily use sukap or just local                                                 |
+# *------------------------------------------------------------------------------------------------*
 def sync_from_spartan(remote_host, remote_dir, local_dir="plots/"):
-    """Execute rsync command and return success status"""
+    """Execute rsync command"""
     check_command = (
         f"ssh {remote_host} "
-        f"'ls -t {remote_dir}/*.png 2>/dev/null | head -n 1'"
+        f"'ls -t {remote_dir}/*.png 2>/dev/null | head -n 1'" # Looks for the most recent png file (plot of charge distribution) - here we can change what we sync with
     )
     
     try:
@@ -67,7 +72,7 @@ def sync_from_spartan(remote_host, remote_dir, local_dir="plots/"):
             st.info("No PNG files found on remote server yet")
             return True
         
-        rsync_command = f"rsync -avz {remote_host}:{remote_file} {local_dir}"
+        rsync_command = f"rsync -avz {remote_host}:{remote_file} {local_dir}" # Syncing command; remote_host and remote_file are defined below 
         
         result = subprocess.run(
             rsync_command,
@@ -100,6 +105,10 @@ def save_config(config):
     with open(CONFIG_FILE, 'w') as f:
         json.dump(config, f, indent=2)
 
+# *---- Background executor: ----------------------------------------------------------------------*
+# |     This allows the GUI to be interfaced with meanwhile automating the data processing and     |
+# |     sync functions.                                                                            |
+# *------------------------------------------------------------------------------------------------*
 def start_background_executor():
     """Start the background executor as a subprocess"""
     try:
@@ -157,7 +166,11 @@ def stop_background_executor():
         return True, "Executor stopped"
     except Exception as e:
         return False, str(e)
-
+    
+# *---- Remote functions: -------------------------------------------------------------------------*
+# |     Here we can change the remote server, and directory, and command that is executed on the   |
+# |     server.                                                                                    |
+# *------------------------------------------------------------------------------------------------*
 if "remote_host" not in st.session_state:
     st.session_state.remote_host = "earles@spartan.hpc.unimelb.edu.au"
 
