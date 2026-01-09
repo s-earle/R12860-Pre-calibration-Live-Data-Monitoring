@@ -16,3 +16,5 @@ Currently v3_full_auto works well. Requirements:
 pip install streamlit-autorefresh
 
 Need to run background_executor in pop-up side menu
+
+need pip install streamlit-extras
