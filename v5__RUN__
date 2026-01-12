@@ -1,0 +1,1006 @@
+import streamlit as st
+from streamlit_autorefresh import st_autorefresh
+from streamlit_extras.stylable_container import stylable_container
+import subprocess
+import os
+import time
+import json
+import threading
+import signal
+import sys
+import re
+import glob
+
+st.set_page_config(page_title="Rsync File Retriever", page_icon="🔄")
+
+
+st.title("Live Data Monitoring")
+
+st.write("Sync with Spartan HPC for processed charge result")
+
+CONFIG_FILE = "executor_config.json"
+STATUS_FILE = "executor_status.json"
+EXECUTOR_PID_FILE = "executor_pid.txt"
+
+# *---- Remove old data: --------------------------------------------------------------------------*
+def cleanup_old_plots(directory, max_age_hours):
+    """Delete data files older than max_age_hours"""
+    if not os.path.exists(directory):
+        return 0
+    
+    current_time = time.time()
+    max_age_seconds = max_age_hours * 3600
+    deleted_count = 0
+    
+    # Find all PNG and TXT files recursively
+    png_files = glob.glob(f"{directory}/**/*.png", recursive=True)
+    txt_files = glob.glob(f"{directory}/**/*_GAIN.txt", recursive=True)
+    
+    all_files = png_files + txt_files
+    
+    for file_path in all_files:
+        try:
+            file_age = current_time - os.path.getmtime(file_path)
+            
+            if file_age > max_age_seconds:
+                os.remove(file_path)
+                deleted_count += 1
+        except Exception as e:
+            st.warning(f"Could not delete {os.path.basename(file_path)}: {str(e)}")
+    
+    # Optionally clean up empty directories
+    try:
+        for root, dirs, files in os.walk(directory, topdown=False):
+            for dir_name in dirs:
+                dir_path = os.path.join(root, dir_name)
+                try:
+                    if not os.listdir(dir_path):  # If directory is empty
+                        os.rmdir(dir_path)
+                except:
+                    pass
+    except:
+        pass
+    
+    return deleted_count
+
+
+def archive_plots_on_server(remote_host, remote_dir, archive_dir):
+    """Move plots and text files from remote directory to archive directory"""
+    # Create archive directory if it doesn't exist
+    mkdir_command = f"ssh {remote_host} 'mkdir -p {archive_dir}'"
+    
+    try:
+        subprocess.run(
+            mkdir_command,
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+        
+        # Move PNG and TXT files to archive
+        move_command = (
+            f"ssh {remote_host} "
+            f"'mv {remote_dir}/*.png {remote_dir}/*.txt {archive_dir}/ 2>/dev/null || true'"
+        )
+        
+        result = subprocess.run(
+            move_command,
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=60
+        )
+        
+        return True, "Files archived successfully"
+        
+    except subprocess.TimeoutExpired:
+        return False, "Archive operation timed out"
+    except Exception as e:
+        return False, f"Archive error: {str(e)}"
+
+def flag_plots_on_server(remote_host, remote_dir, flag_dir):
+    """Move plots and text files from remote directory to flagged directory"""
+    # Create flag directory if it doesn't exist
+    mkdir_command = f"ssh {remote_host} 'mkdir -p {flag_dir}'"
+    
+    try:
+        subprocess.run(
+            mkdir_command,
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+        
+        # Move PNG and TXT files to flag directory
+        move_command = (
+            f"ssh {remote_host} "
+            f"'mv {remote_dir}/*.png {remote_dir}/*.txt {flag_dir}/ 2>/dev/null || true'"
+        )
+        
+        result = subprocess.run(
+            move_command,
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=60
+        )
+        
+        return True, "Files flagged successfully"
+        
+    except subprocess.TimeoutExpired:
+        return False, "Flag operation timed out"
+    except Exception as e:
+        return False, f"Flag error: {str(e)}"
+
+
+
+
+# *---- Performing sync: --------------------------------------------------------------------------*
+# |     Here we look to a remote server (currently Spartan at unimelb) and sync the data outputs   |
+# |     from a specific directory. The code is written to use a directory I (S.Earle) made         |
+# |     however this can be changed in the GUI or changed here in the backend code.                |
+# |     We could as easily use sukap or just local                                                 |
+# *------------------------------------------------------------------------------------------------*
+def sync_from_spartan(remote_host, remote_dir, local_dir="plots/", serial_number=None):
+    """Execute rsync command to sync files from structured directory"""
+    try:
+        # Find the most recent scan_output directory
+        find_command = (
+            f"ssh {remote_host} "
+            f"'ls -td {remote_dir}/scan_output_* 2>/dev/null | head -n 1'"
+        )
+        
+        find_result = subprocess.run(
+            find_command,
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+        
+        latest_scan_dir = find_result.stdout.strip()
+        
+        if not latest_scan_dir:
+            return True, "No scan_output directories found"
+        
+        # If serial number provided, sync only that SN's directory
+        if serial_number:
+            source_path = f"{latest_scan_dir}/{serial_number}/"
+        else:
+            source_path = f"{latest_scan_dir}/"
+        
+        # Sync all files from the latest scan directory structure
+        # Updated to match new filenames: *_charge.png and *_GAIN.txt
+        rsync_command = (
+            f"rsync -avz --include='*/' "
+            f"--include='*_charge.png' "
+            f"--include='*_GAIN.txt' "
+            f"--exclude='*' "
+            f"{remote_host}:{source_path} {local_dir}"
+        )
+        
+        result = subprocess.run(
+            rsync_command,
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=120
+        )
+        
+        if result.returncode == 0:
+            scan_name = os.path.basename(latest_scan_dir)
+            sn_msg = f" (SN: {serial_number})" if serial_number else ""
+            return True, f"Synced from {scan_name}{sn_msg}"
+        else:
+            return False, f"Rsync failed with code {result.returncode}"
+        
+    except Exception as e:
+        return False, f"Sync error: {str(e)}"
+
+def parse_theta_phi_from_path(filepath):
+    """Extract theta and phi values from filepath"""
+    # Match pattern: data_theta{theta}_phi{phi}
+    match = re.search(r'data_theta(\d+)_phi(\d+)', filepath)
+    if match:
+        theta = int(match.group(1))
+        phi = int(match.group(2))
+        return theta, phi
+    return None, None
+
+def get_slot_from_theta_phi(theta, phi):
+    """Convert theta/phi coordinates to grid slot number
+    
+    Slot 0: [0, 0]
+    Slots 1-20: theta in [10, 20, 30, 40, 50], phi in [0, 90, 180, 270]
+    """
+    if theta == 0 and phi == 0:
+        return 0
+    
+    # For non-zero positions
+    if theta in [10, 20, 30, 40, 50] and phi in [0, 90, 180, 270]:
+        row = (theta // 10) - 1  # 10->0, 20->1, 30->2, 40->3, 50->4
+        col = phi // 90          # 0->0, 90->1, 180->2, 270->3
+        return 1 + (row * 4) + col
+    
+    return None
+
+def find_files_by_theta_phi(plots_dir, theta, phi):
+    """Find PNG and TXT files for specific theta/phi coordinates"""
+    # Search pattern for the specific coordinates - updated for new naming
+    pattern = f"{plots_dir}/**/data_theta{theta}_phi{phi}/*_theta{theta}_phi{phi}_charge.png"
+    png_files = glob.glob(pattern, recursive=True)
+    
+    if not png_files:
+        return None, None
+    
+    # Get the most recent file
+    png_file = max(png_files, key=os.path.getmtime)
+    
+    # Find corresponding gain file
+    # Replace _charge.png with _GAIN.txt
+    gain_file = png_file.replace('_charge.png', '_GAIN.txt')
+    
+    if not os.path.exists(gain_file):
+        gain_file = None
+    
+    return png_file, gain_file
+
+def get_gain_value_from_file(gain_file_path):
+    """Extract gain value from gain result file"""
+    if not gain_file_path or not os.path.exists(gain_file_path):
+        return "Gain: N/A"
+    
+    try:
+        with open(gain_file_path, 'r') as f:
+            gain_str = f.read().strip()
+            try:
+                gain_val = float(gain_str)
+                return f"Gain: {gain_val:.2e}"
+            except ValueError:
+                return f"Gain: {gain_str}"
+    except Exception as e:
+        return "Gain: Error"
+
+def load_status():
+    """Load executor status from file"""
+    if os.path.exists(STATUS_FILE):
+        try:
+            with open(STATUS_FILE, 'r') as f:
+                return json.load(f)
+        except:
+            return None
+    return None
+
+def save_config(config):
+    """Save configuration to file"""
+    with open(CONFIG_FILE, 'w') as f:
+        json.dump(config, f, indent=2)
+
+# *---- Background executor: ----------------------------------------------------------------------*
+# |     This allows the GUI to be interfaced with meanwhile automating the data processing and     |
+# |     sync functions.                                                                            |
+# *------------------------------------------------------------------------------------------------*
+def start_background_executor():
+    """Start the background executor as a subprocess"""
+    try:
+        # Start the background executor
+        process = subprocess.Popen(
+            [sys.executable, "background_executor.py"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True
+        )
+        
+        # Save the PID
+        with open(EXECUTOR_PID_FILE, 'w') as f:
+            f.write(str(process.pid))
+        
+        return True, process.pid
+    except Exception as e:
+        return False, str(e)
+
+def check_executor_running():
+    """Check if background executor is running"""
+    if not os.path.exists(EXECUTOR_PID_FILE):
+        return False
+    
+    try:
+        with open(EXECUTOR_PID_FILE, 'r') as f:
+            pid = int(f.read().strip())
+        
+        # Check if process is still running
+        os.kill(pid, 0)
+        return True
+    except (OSError, ValueError):
+        # Process doesn't exist or invalid PID
+        if os.path.exists(EXECUTOR_PID_FILE):
+            os.remove(EXECUTOR_PID_FILE)
+        return False
+
+def stop_background_executor():
+    """Stop the background executor"""
+    if not os.path.exists(EXECUTOR_PID_FILE):
+        return True, "Executor not running"
+    
+    try:
+        with open(EXECUTOR_PID_FILE, 'r') as f:
+            pid = int(f.read().strip())
+        
+        # Terminate the process
+        os.kill(pid, signal.SIGTERM)
+        time.sleep(0.5)
+        
+        # Clean up PID file
+        if os.path.exists(EXECUTOR_PID_FILE):
+            os.remove(EXECUTOR_PID_FILE)
+        
+        return True, "Executor stopped"
+    except Exception as e:
+        return False, str(e)
+
+def get_gain_value(plot_path):
+    """Extract gain value from corresponding text file"""
+    # Try multiple possible text file locations/names
+    base_name = os.path.splitext(plot_path)[0]
+    txt_path = base_name + 'gain*.txt'
+    
+    # Also try looking for gain_result.txt in same directory
+    if not os.path.exists(txt_path):
+        dir_path = os.path.dirname(plot_path)
+        txt_path = os.path.join(dir_path, 'gain_result*.txt')
+    
+    # Try just replacing .png with .txt
+    if not os.path.exists(txt_path):
+        txt_path = plot_path.replace('.png', '.txt')
+    
+    try:
+        if os.path.exists(txt_path):
+            with open(txt_path, 'r') as f:
+                gain_str = f.read().strip()
+                # Try to format the gain value nicely
+                try:
+                    gain_val = float(gain_str)
+                    return f"Gain: {gain_val:.2e}"
+                except ValueError:
+                    return f"Gain: {gain_str}"
+        else:
+            return "Gain: N/A"
+    except Exception as e:
+        return "Gain: Error"
+    
+# *---- Remote functions: -------------------------------------------------------------------------*
+# |     Here we can change the remote server, and directory, and command that is executed on the   |
+# |     server.                                                                                    |
+# *------------------------------------------------------------------------------------------------*
+if "remote_host" not in st.session_state:
+    st.session_state.remote_host = "earles@spartan.hpc.unimelb.edu.au"
+
+if "remote_directory" not in st.session_state:
+    st.session_state.remote_directory = "/data/gpfs/projects/punim1378/earles/Precal_GUI"
+
+if "remote_command" not in st.session_state:
+    st.session_state.remote_command = "sbatch ./RUN_smart.slurm {SN}" # This is the executing file on server. We can write anyone we want and then insert it here OR change it on the GUI. 
+
+if "archive_directory" not in st.session_state:
+    st.session_state.archive_directory = "/data/gpfs/projects/punim1378/earles/Precal_GUI/archive"
+
+if "flag_directory" not in st.session_state:
+    st.session_state.flag_directory = "/data/gpfs/projects/punim1378/earles/Precal_GUI/FLAG"
+
+
+if "cleanup_time_hours" not in st.session_state:
+    st.session_state.cleanup_time_hours = 24
+
+if "selected_plot" not in st.session_state:
+    st.session_state.selected_plot = None
+
+# Automatic cleanup on page load
+cleanup_old_plots("plots/", st.session_state.cleanup_time_hours)
+
+# Check background executor status
+status = load_status()
+is_running = bool(status and status.get('running', False))
+executor_alive = check_executor_running()
+
+# Auto-refresh when background executor is running
+if is_running:
+    # Refresh every 5 seconds (5000 milliseconds)
+    st_autorefresh(interval=5000, key="datarefresh") # We will want to change this to a longer period, aligning with the full scanning time
+
+# Background Executor Status
+st.sidebar.header("STEP 1: Background Executor")
+if executor_alive:
+    st.sidebar.success("✅ Running")
+else:
+    st.sidebar.warning("⚠️ Not Running")
+
+col_exec1, col_exec2 = st.sidebar.columns(2)
+with col_exec1:
+    if st.button("▶️ Start", disabled=executor_alive, use_container_width=True):
+        success, result = start_background_executor()
+        if success:
+            st.success(f"✅ Executor started (PID: {result})")
+            time.sleep(1)
+            st.rerun()
+        else:
+            st.error(f"❌ Failed to start: {result}")
+
+with col_exec2:
+    if st.button("⏹️ Stop", disabled=not executor_alive, use_container_width=True):
+        success, msg = stop_background_executor()
+        if success:
+            st.success(f"✅ {msg}")
+            time.sleep(1)
+            st.rerun()
+        else:
+            st.error(f"❌ Failed: {msg}")
+
+if st.sidebar.button("Reset All", type="secondary", use_container_width=True):
+    # Stop executor
+    stop_background_executor()
+    
+    # Clean up all status files
+    for file in [CONFIG_FILE, STATUS_FILE, EXECUTOR_PID_FILE]:
+        if os.path.exists(file):
+            os.remove(file)
+    
+    st.sidebar.success("Reset complete!")
+    time.sleep(1)
+    st.rerun()
+
+st.sidebar.divider()
+
+# Show configuration
+with st.expander("STEP 2: Check Remote Execution Configuration"):
+    st.session_state.remote_host = st.text_input(
+        "Remote Host",
+        value=st.session_state.remote_host
+    )
+    st.session_state.remote_directory = st.text_input(
+        "Remote Directory",
+        value=st.session_state.remote_directory
+    )
+    st.session_state.remote_command = st.text_input(
+        "Command to Execute",
+        value=st.session_state.remote_command
+    )
+
+
+with st.expander("STEP 3: Configure Local Auto-Cleanup -- Execute before starting Scan"):
+    cleanup_hours = st.number_input(
+        "Delete data files older than (hours)",
+        min_value=1,
+        max_value=720,
+        value=st.session_state.cleanup_time_hours,
+        step=1,
+        help="Data files on local machine older than this will be automatically deleted when user clicks 'Clear Old Data Now' "
+    )
+    st.session_state.cleanup_time_hours = cleanup_hours
+    
+    if st.button("Clear Old Data Now"):
+        deleted = cleanup_old_plots("plots/", st.session_state.cleanup_time_hours)
+        if deleted > 0:
+            st.success(f"Deleted {deleted} old data file(s)")
+        else:
+            st.info("No old files to delete")
+    
+    if st.button("Clear ALL Data Now"):
+        if os.path.exists("plots/"):
+            count = 0
+            # Use glob to find all PNG files recursively
+            all_png_files = glob.glob("plots/**/*.png", recursive=True)
+            all_txt_files = glob.glob("plots/**/*.txt", recursive=True)
+            
+            # Delete PNG files
+            for f in all_png_files:
+                try:
+                    os.remove(f)
+                    count += 1
+                except Exception as e:
+                    st.error(f"Error deleting {f}: {str(e)}")
+            
+            # Delete TXT files
+            for f in all_txt_files:
+                try:
+                    os.remove(f)
+                    count += 1
+                except Exception as e:
+                    st.error(f"Error deleting {f}: {str(e)}")
+            
+            # Optionally remove empty directories
+            try:
+                for root, dirs, files in os.walk("plots/", topdown=False):
+                    for dir_name in dirs:
+                        dir_path = os.path.join(root, dir_name)
+                        try:
+                            if not os.listdir(dir_path):  # If directory is empty
+                                os.rmdir(dir_path)
+                        except:
+                            pass
+            except:
+                pass
+            
+            st.success(f"Deleted all {count} file(s)")
+        else:
+            st.warning("Data directory doesn't exist")
+
+if is_running:
+    st.info(f"Background executor running: {status.get('message', 'Processing...')}")
+    if status.get('total'):
+        progress = status.get('completed', 0) / status['total']
+        st.progress(progress)
+        st.write(f"Completed: {status.get('completed', 0)}/{status['total']}")
+
+
+st.divider()
+st.subheader("STEP 4: Serial Number Configuration")
+
+if "serial_number" not in st.session_state:
+    st.session_state.serial_number = ""
+
+serial_number_input = st.text_input(
+    "Enter Detector Serial Number:",
+    value=st.session_state.serial_number,
+    placeholder="e.g., SN12345",
+    help="This serial number will be used to locate the correct data files on the server",
+    key="sn_input"
+)
+
+st.session_state.serial_number = serial_number_input
+
+# Validation indicator
+if st.session_state.serial_number.strip():
+    st.success(f"✓ Serial Number set: {st.session_state.serial_number}")
+else:
+    st.warning("⚠️ Please enter a serial number before starting auto-execute")
+
+st.divider()
+
+
+with stylable_container(
+    "orange_button",
+    css_styles="""
+    button {
+        background-color: #228B22;
+        color: white;
+        border-color: #228B22;
+        height: 80px;
+        font-size: 20px;
+        font-weight: bold;
+        white-space: pre-line;
+        line-height: 1.3;
+    }
+    button:hover {
+        border-color: #0066cc;
+        opacity: 0.9;
+    }
+    """,
+):
+    # Disable button if no serial number
+    button_disabled = is_running or not executor_alive or not st.session_state.serial_number.strip()
+    
+    if st.button("STEP 5: RUN LIVE MONITORING\nStart Auto-Execute (21 runs)", 
+                 type="primary", 
+                 disabled=button_disabled, 
+                 use_container_width=True, 
+                 key="start_auto"):
+        # First, archive existing data on server
+        st.info("Archiving existing data on server before starting...")
+        success, message = archive_plots_on_server(
+            st.session_state.remote_host,
+            st.session_state.remote_directory,
+            st.session_state.archive_directory
+        )
+        
+        if success:
+            st.success(f"✅ {message}")
+        else:
+            st.warning(f"⚠️ Archive warning: {message}")
+        
+        # Then start auto-execute
+        config = {
+            'running': True,
+            'remote_host': st.session_state.remote_host,
+            'remote_directory': st.session_state.remote_directory,
+            'remote_command': st.session_state.remote_command,
+            'serial_number': st.session_state.serial_number,  # Add serial number to config
+            'total_runs': 21,
+            'interval_seconds': 60
+        }
+        save_config(config)
+        st.success("Auto-execute started!")
+        time.sleep(2)
+        st.rerun()
+
+st.caption(
+    "This will first archive any existing data on the server, then automatically process data on the server and sync with that data. There is a delay between finishing a scan point and the data coming through."
+)
+
+# Orange button for Stop Auto-Execute
+with stylable_container(
+    "orange_button_stop",
+    css_styles="""
+    button {
+        background-color: #ff8c00;
+        color: white;
+        border-color: #ff8c00;
+        height: 60px;
+        font-size: 18px;
+        font-weight: bold;
+    }
+    button:hover {
+        border-color: #0066cc;
+        opacity: 0.9;
+    }
+    """,
+):
+    if st.button("Stop Auto-Execute", type="primary", disabled=not is_running, use_container_width=True, key="stop_auto"):
+        # Just stop the auto-execute, keep executor running
+        if os.path.exists(CONFIG_FILE):
+            config = load_status()
+            if config:
+                config['running'] = False
+                save_config(config)
+        
+        if os.path.exists(STATUS_FILE):
+            status = load_status()
+            if status:
+                status['running'] = False
+                status['message'] = 'Stopped by user'
+                with open(STATUS_FILE, 'w') as f:
+                    json.dump(status, f, indent=2)
+        
+        st.success("Auto-execute stopped (executor still running)")
+        time.sleep(1)
+        st.rerun()
+
+if st.button("Execute on Server Once (For ONE scan point)", type="secondary", disabled=is_running or not executor_alive, use_container_width=True):
+    st.info("Syncing files from Server...")
+    sync_from_spartan(st.session_state.remote_host, st.session_state.remote_directory)
+    
+    st.info("Executing command on Server...")
+    
+    ssh_command = (
+        f"ssh {st.session_state.remote_host} "
+        f"'cd {st.session_state.remote_directory} && {st.session_state.remote_command}'"
+    )
+    
+    st.code(ssh_command, language="bash")
+    
+    try:
+        result = subprocess.run(
+            ssh_command,
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=120
+        )
+        
+        if result.returncode == 0:
+            st.success("Command executed successfully!")
+        else:
+            st.warning("Command completed with errors")
+        
+        if result.stdout:
+            st.subheader("Output:")
+            st.code(result.stdout, language="bash")
+        
+        if result.stderr:
+            st.subheader("Errors/Messages:")
+            st.code(result.stderr, language="bash")
+        
+        st.info(f"Return code: {result.returncode}")
+            
+    except subprocess.TimeoutExpired:
+        st.error("❌ Command timed out (exceeded 2 minutes)")
+    except Exception as e:
+        st.error(f"❌ Error: {str(e)}")
+
+
+# Show refresh controls when running
+if is_running:
+    st.info("Page auto-refreshes every 5 seconds. All buttons remain clickable!")
+    if st.button("Refresh Now", use_container_width=True):
+        st.rerun()
+
+if st.button("Manual Sync", type="secondary", use_container_width=True):
+    st.info("Executing sync... This may take a moment.")
+    
+    sn = st.session_state.serial_number if st.session_state.serial_number.strip() else None
+    if sync_from_spartan(st.session_state.remote_host, st.session_state.remote_directory, serial_number=sn):
+        st.success("Sync completed successfully!")
+    else:
+        st.warning("⚠️ Sync completed with issues")
+    
+    plots_dir = "plots/"
+    if os.path.exists(plots_dir):
+        png_files = [f for f in os.listdir(plots_dir) if f.endswith('.png')]
+        if png_files:
+            latest_file = max([os.path.join(plots_dir, f) for f in png_files], key=os.path.getmtime)
+            st.subheader("Latest Retrieved File:")
+            st.image(latest_file, caption=os.path.basename(latest_file))
+
+st.divider()
+st.subheader("Recent Scan Data")
+st.caption(
+    "Shows the most recent scan results synced from the server. "
+    "Data will lag slightly behind acquisition. "
+    "Clicking View will also clear old data."
+)
+
+plots_dir = "plots"
+N_COLS = 4
+N_ROWS = 5
+MAX_PLOTS = N_COLS * N_ROWS + 1
+
+if os.path.exists(plots_dir):
+    png_files = [
+        os.path.join(plots_dir, f)
+        for f in os.listdir(plots_dir)
+        if f.endswith(".png")
+    ]
+else:
+    png_files = []
+
+if not os.path.exists(plots_dir):
+    st.warning(f"Directory does not exist: {plots_dir}")
+
+png_files = sorted(png_files, key=os.path.getmtime, reverse=True)
+png_files = png_files[:MAX_PLOTS]
+
+def get_coordinate_label(slot):
+    """Convert slot to [theta, phi] label"""
+    if slot == 0:
+        return "[0, 0]"
+    else:
+        row_num = ((slot - 1) // 4) + 1
+        col_num = (slot - 1) % 4
+        theta = row_num * 10
+        phi = col_num * 90
+        return f"[{theta}, {phi}]"
+
+def get_theta_phi_from_slot(slot):
+    """Convert slot to actual theta/phi values"""
+    if slot == 0:
+        return 0, 0
+    else:
+        row_num = ((slot - 1) // 4) + 1
+        col_num = (slot - 1) % 4
+        theta = row_num * 10
+        phi = col_num * 90
+        return theta, phi
+
+# Display grid
+st.markdown("""
+<style>
+    .grid-button {
+        background-color: #28a745;
+        color: white;
+        padding: 20px 10px;
+        text-align: center;
+        border-radius: 5px;
+        font-weight: bold;
+        font-size: 14px;
+        cursor: pointer;
+        border: 2px solid transparent;
+        transition: all 0.3s;
+        min-height: 100px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+    }
+    .grid-button:hover {
+        border-color: #0066cc;
+        opacity: 0.9;
+        background-color: #218838;
+    }
+    .no-data-box {
+        background-color: #ffc107;
+        color: #333;
+        padding: 20px 10px;
+        text-align: center;
+        border-radius: 5px;
+        font-weight: bold;
+        font-size: 14px;
+        border: 1px solid #e0a800;
+        min-height: 100px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+    }
+    .coordinate-label {
+        font-size: 12px;
+        margin-top: 5px;
+        opacity: 0.9;
+        font-weight: bold;
+    }
+    .gain-label {
+        font-size: 11px;
+        margin-top: 3px;
+        opacity: 0.95;
+        font-weight: bold;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+slot = 0
+
+# First row - single [0,0] button centered
+col1, col2, col3 = st.columns([1, 2, 1])
+with col2:
+    theta, phi = get_theta_phi_from_slot(slot)
+    coord_label = get_coordinate_label(slot)
+    
+    png_file, gain_file = find_files_by_theta_phi("plots", theta, phi)
+    
+    if png_file:
+        gain_value = get_gain_value_from_file(gain_file)
+        
+        st.markdown(
+            f"""
+            <div class="grid-button">
+                <div>Healthy</div>
+                <div class="gain-label">{gain_value}</div>
+                <div class="coordinate-label">{coord_label}</div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+        
+        if st.button("View", key=f"view_{slot}", use_container_width=True):
+            st.session_state.selected_plot = png_file
+            st.session_state.selected_gain = gain_value
+    else:
+        st.markdown(
+            f"""
+            <div class="no-data-box">
+                <div>⚠ No Data</div>
+                <div class="coordinate-label">{coord_label}</div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+slot += 1
+
+# Remaining rows - 4 columns each
+for row in range(5):  # 5 rows
+    cols = st.columns(4)  # 4 columns
+    for col in cols:
+        theta, phi = get_theta_phi_from_slot(slot)
+        coord_label = get_coordinate_label(slot)
+
+        with col:
+            png_file, gain_file = find_files_by_theta_phi("plots", theta, phi)
+            
+            if png_file:
+                gain_value = get_gain_value_from_file(gain_file)
+                
+                st.markdown(
+                    f"""
+                    <div class="grid-button">
+                        <div>Healthy</div>
+                        <div class="gain-label">{gain_value}</div>
+                        <div class="coordinate-label">{coord_label}</div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+                
+                if st.button("View", key=f"view_{slot}", use_container_width=True):
+                    st.session_state.selected_plot = png_file
+                    st.session_state.selected_gain = gain_value
+                
+            else:
+                st.markdown(
+                    f"""
+                    <div class="no-data-box">
+                        <div>⚠ No Data</div>
+                        <div class="coordinate-label">{coord_label}</div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+
+        slot += 1
+
+if st.session_state.selected_plot:
+    st.divider()
+    st.subheader("Selected Data")
+    st.image(
+        st.session_state.selected_plot,
+        use_container_width=True,
+        caption=os.path.basename(st.session_state.selected_plot)
+    )
+
+
+st.divider()
+
+# Red button for Flag - STEP 5
+with stylable_container(
+    "red_button",
+    css_styles="""
+    button {
+        background-color: #dc3545;
+        color: white;
+        border-color: #dc3545;
+        height: 60px;
+        font-size: 18px;
+        font-weight: bold;
+    }
+    button:hover {
+        border-color: #0066cc;
+        opacity: 0.9;
+    }
+    """,
+):
+    if st.button("⚠️ STEP 5: Flag Data as ABNORMAL", type="primary", use_container_width=True, key="flag_data"):
+        st.info("Flagging data on server...")
+        success, message = flag_plots_on_server(
+            st.session_state.remote_host,
+            st.session_state.remote_directory,
+            st.session_state.flag_directory
+        )
+        
+        if success:
+            st.success(f"✅ {message}")
+        else:
+            st.error(f"❌ {message}")
+
+st.caption("Use this button to flag abnormal data files and move them to the flag directory on the server.")
+
+with st.expander("Configure Archive and Flag Directories"):
+    st.session_state.archive_directory = st.text_input(
+        "Archive Directory on Server:",
+        value=st.session_state.archive_directory,
+        help="Remote directory where normal data files will be moved to"
+    )
+    
+    st.session_state.flag_directory = st.text_input(
+        "Flag Directory on Server:",
+        value=st.session_state.flag_directory,
+        help="Remote directory where abnormal/flagged data files will be moved to"
+    )
+    
+    if st.button("Archive Server Data (Manual)", type="secondary", use_container_width=True):
+        st.info("Archiving data on server...")
+        success, message = archive_plots_on_server(
+            st.session_state.remote_host,
+            st.session_state.remote_directory,
+            st.session_state.archive_directory
+        )
+        
+        if success:
+            st.success(f"✅ {message}")
+        else:
+            st.error(f"❌ {message}")
+    
+    st.caption("Archive happens automatically when starting Auto-Execute. Use manual archive only if needed.")
+    
+st.divider()
+st.subheader("Data Files in Local Directory")
+
+plots_dir = "plots/"
+if os.path.exists(plots_dir):
+    # Find all PNG files recursively
+    png_files = glob.glob(f"{plots_dir}/**/live_data_*.png", recursive=True)
+    
+    if png_files:
+        # Sort by modification time
+        png_files = sorted(png_files, key=os.path.getmtime, reverse=True)
+        
+        st.write(f"Found {len(png_files)} data file(s):")
+        
+        # Group by theta/phi
+        for f in png_files[:20]:  # Show most recent 20
+            theta, phi = parse_theta_phi_from_path(f)
+            rel_path = os.path.relpath(f, plots_dir)
+            st.text(f"[θ={theta}, φ={phi}] {rel_path}")
+    else:
+        st.info("No files found in the data directory yet.")
+else:
+    st.warning(f"Directory does not exist: {plots_dir}")
