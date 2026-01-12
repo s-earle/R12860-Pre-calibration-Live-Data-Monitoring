@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Background executor script for auto-running commands on Spartan HPC
-Run this separately: python background_executor.py
+This script keeps running and waits for commands
 """
 
 import subprocess
@@ -16,8 +16,11 @@ STATUS_FILE = "executor_status.json"
 def load_config():
     """Load configuration from file"""
     if os.path.exists(CONFIG_FILE):
-        with open(CONFIG_FILE, 'r') as f:
-            return json.load(f)
+        try:
+            with open(CONFIG_FILE, 'r') as f:
+                return json.load(f)
+        except:
+            return None
     return None
 
 def save_status(status_data):
@@ -25,28 +28,43 @@ def save_status(status_data):
     with open(STATUS_FILE, 'w') as f:
         json.dump(status_data, f, indent=2)
 
-def sync_from_spartan(remote_host, remote_dir, local_dir="plots/"):
-    """Execute rsync command and return success status"""
-    check_command = (
-        f"ssh {remote_host} "
-        f"'ls -t {remote_dir}/*.png 2>/dev/null | head -n 1'"
-    )
-    
+def sync_from_spartan(remote_host, remote_dir, local_dir="plots/", serial_number=None):
+    """Execute rsync command to sync files from structured directory"""
     try:
-        check_result = subprocess.run(
-            check_command,
+        # Find the most recent scan_output directory
+        find_command = (
+            f"ssh {remote_host} "
+            f"'ls -td {remote_dir}/scan_output_* 2>/dev/null | head -n 1'"
+        )
+        
+        find_result = subprocess.run(
+            find_command,
             shell=True,
             capture_output=True,
             text=True,
             timeout=30
         )
         
-        remote_file = check_result.stdout.strip()
+        latest_scan_dir = find_result.stdout.strip()
         
-        if not remote_file:
-            return True, "No PNG files found on remote server"
+        if not latest_scan_dir:
+            return True, "No scan_output directories found"
         
-        rsync_command = f"rsync -avz {remote_host}:{remote_file} {local_dir}"
+        # If serial number provided, sync only that SN's directory
+        if serial_number:
+            source_path = f"{latest_scan_dir}/{serial_number}/"
+        else:
+            source_path = f"{latest_scan_dir}/"
+        
+        # Sync all files from the latest scan directory structure
+        # Updated to match new filenames: *_charge.png and *_GAIN.txt
+        rsync_command = (
+            f"rsync -avz --include='*/' "
+            f"--include='*_charge.png' "
+            f"--include='*_GAIN.txt' "
+            f"--exclude='*' "
+            f"{remote_host}:{source_path} {local_dir}"
+        )
         
         result = subprocess.run(
             rsync_command,
@@ -57,18 +75,26 @@ def sync_from_spartan(remote_host, remote_dir, local_dir="plots/"):
         )
         
         if result.returncode == 0:
-            return True, f"Synced: {os.path.basename(remote_file)}"
+            scan_name = os.path.basename(latest_scan_dir)
+            sn_msg = f" (SN: {serial_number})" if serial_number else ""
+            return True, f"Synced from {scan_name}{sn_msg}"
         else:
             return False, f"Rsync failed with code {result.returncode}"
         
     except Exception as e:
         return False, f"Sync error: {str(e)}"
 
-def execute_command(remote_host, remote_dir, remote_command):
+def execute_command(remote_host, remote_dir, remote_command, serial_number=None):
     """Execute command on remote server"""
+    # Replace {SN} placeholder with actual serial number
+    if serial_number and '{SN}' in remote_command:
+        actual_command = remote_command.replace('{SN}', serial_number)
+    else:
+        actual_command = remote_command
+    
     ssh_command = (
         f"ssh {remote_host} "
-        f"'cd {remote_dir} && {remote_command}'"
+        f"'cd {remote_dir} && {actual_command}'"
     )
     
     try:
@@ -85,108 +111,146 @@ def execute_command(remote_host, remote_dir, remote_command):
         return False, "", str(e)
 
 def main():
-    print("Background executor started. Waiting for configuration...")
+    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Background executor started")
+    print("Waiting for commands...")
+    
+    # Initialize status as idle
+    save_status({
+        'running': False,
+        'completed': 0,
+        'total': 0,
+        'message': 'Executor ready, waiting for commands'
+    })
     
     while True:
-        config = load_config()
-        
-        if config and config.get('running'):
-            print(f"\nStarting auto-execute: {config['total_runs']} runs")
+        try:
+            config = load_config()
             
-            for run_num in range(1, config['total_runs'] + 1):
-                # Check if we should stop
-                config = load_config()
-                if not config or not config.get('running'):
-                    print("Execution cancelled by user")
-                    save_status({
-                        'running': False,
-                        'completed': run_num - 1,
-                        'total': config['total_runs'],
-                        'message': 'Cancelled by user'
-                    })
-                    break
-                
-                print(f"\n[{datetime.now().strftime('%H:%M:%S')}] Run {run_num}/{config['total_runs']}")
+            if config and config.get('running'):
+                print(f"\n[{datetime.now().strftime('%H:%M:%S')}] Starting live monitoring")
                 
                 # Update status
                 save_status({
                     'running': True,
-                    'completed': run_num - 1,
+                    'completed': 0,
                     'total': config['total_runs'],
-                    'current_run': run_num,
-                    'message': f'Running {run_num}/{config["total_runs"]}'
+                    'message': 'Starting SLURM job on server'
                 })
                 
-                # Sync files
-                print("  Syncing files...")
-                sync_success, sync_msg = sync_from_spartan(
-                    config['remote_host'],
-                    config['remote_directory']
-                )
-                print(f"  {sync_msg}")
-                
-                # Execute command
-                print("  Executing command...")
+                # Execute the SLURM job ONCE - it will handle all 21 points
+                print("  Submitting SLURM job...")
                 exec_success, stdout, stderr = execute_command(
                     config['remote_host'],
                     config['remote_directory'],
-                    config['remote_command']
+                    config['remote_command'],
+                    serial_number=config.get('serial_number')
                 )
                 
                 if exec_success:
-                    print(f"  ✓ Run {run_num} completed successfully")
+                    print(f"  ✓ SLURM job submitted successfully")
+                    if stdout:
+                        print(f"  Job ID: {stdout.strip()}")
                 else:
-                    print(f"  ✗ Run {run_num} failed")
+                    print(f"  ✗ SLURM job submission failed")
                     if stderr:
                         print(f"  Error: {stderr[:200]}")
                 
-                # Update status with result
-                save_status({
-                    'running': True,
-                    'completed': run_num,
-                    'total': config['total_runs'],
-                    'message': f'Completed {run_num}/{config["total_runs"]}',
-                    'last_success': exec_success
-                })
+                # Now just sync periodically while the job runs
+                wait_time = config.get('interval_seconds', 60)
                 
-                # Wait before next run (except for last run)
-                if run_num < config['total_runs']:
-                    wait_time = config.get('interval_seconds', 60)
-                    print(f"  Waiting {wait_time} seconds...")
+                for run_num in range(1, config['total_runs'] + 1):
+                    # Check if we should stop
+                    config = load_config()
+                    if not config or not config.get('running'):
+                        print(f"[{datetime.now().strftime('%H:%M:%S')}] Monitoring stopped by user")
+                        save_status({
+                            'running': False,
+                            'completed': run_num - 1,
+                            'total': config.get('total_runs', 0) if config else 0,
+                            'message': 'Stopped by user - Ready for new commands'
+                        })
+                        break
                     
-                    for i in range(wait_time):
-                        # Check for cancellation during wait
-                        config = load_config()
-                        if not config or not config.get('running'):
-                            print("\nExecution cancelled during wait")
-                            save_status({
-                                'running': False,
-                                'completed': run_num,
-                                'total': config['total_runs'],
-                                'message': 'Cancelled by user'
-                            })
-                            break
-                        time.sleep(1)
-                    else:
-                        continue
-                    break
-            else:
-                # All runs completed
-                print(f"\n✓ All {config['total_runs']} runs completed!")
-                save_status({
-                    'running': False,
-                    'completed': config['total_runs'],
-                    'total': config['total_runs'],
-                    'message': 'All runs completed successfully'
-                })
-                
-                # Clear the config to stop
-                config['running'] = False
-                with open(CONFIG_FILE, 'w') as f:
-                    json.dump(config, f, indent=2)
-        
-        # Wait before checking again
-        time.sleep(2)
+                    print(f"\n[{datetime.now().strftime('%H:%M:%S')}] Sync cycle {run_num}/{config['total_runs']}")
+                    
+                    # Update status
+                    save_status({
+                        'running': True,
+                        'completed': run_num - 1,
+                        'total': config['total_runs'],
+                        'current_run': run_num,
+                        'message': f'Syncing data {run_num}/{config["total_runs"]}'
+                    })
+                    
+                    # Sync files
+                    print("  Syncing files...")
+                    sync_success, sync_msg = sync_from_spartan(
+                        config['remote_host'],
+                        config['remote_directory'],
+                        serial_number=config.get('serial_number')
+                    )
+                    print(f"  {sync_msg}")
+                    
+                    # Update status with result
+                    save_status({
+                        'running': True,
+                        'completed': run_num,
+                        'total': config['total_runs'],
+                        'message': f'Synced {run_num}/{config["total_runs"]}',
+                        'last_success': sync_success
+                    })
+                    
+                    # Wait before next sync
+                    if run_num < config['total_runs']:
+                        print(f"  Waiting {wait_time} seconds before next sync...")
+                        
+                        for i in range(wait_time):
+                            # Check for cancellation during wait
+                            config = load_config()
+                            if not config or not config.get('running'):
+                                print(f"\n[{datetime.now().strftime('%H:%M:%S')}] Cancelled during wait")
+                                save_status({
+                                    'running': False,
+                                    'completed': run_num,
+                                    'total': config.get('total_runs', 0) if config else 0,
+                                    'message': 'Stopped by user - Ready for new commands'
+                                })
+                                break
+                            time.sleep(1)
+                        else:
+                            continue
+                        break
+                else:
+                    # All syncs completed
+                    print(f"\n[{datetime.now().strftime('%H:%M:%S')}] ✓ All sync cycles completed!")
+                    save_status({
+                        'running': False,
+                        'completed': config['total_runs'],
+                        'total': config['total_runs'],
+                        'message': 'Monitoring complete - Ready for new commands'
+                    })
+                    
+                    # Mark as not running in config
+                    if config:
+                        config['running'] = False
+                        with open(CONFIG_FILE, 'w') as f:
+                            json.dump(config, f, indent=2)
+            
+            # Wait before checking again
+            time.sleep(2)
+            
+        except KeyboardInterrupt:
+            print(f"\n[{datetime.now().strftime('%H:%M:%S')}] Executor shutting down...")
+            save_status({
+                'running': False,
+                'completed': 0,
+                'total': 0,
+                'message': 'Executor stopped'
+            })
+            break
+        except Exception as e:
+            print(f"[{datetime.now().strftime('%H:%M:%S')}] Error: {str(e)}")
+            time.sleep(5)
 
 if __name__ == "__main__":
     main()
