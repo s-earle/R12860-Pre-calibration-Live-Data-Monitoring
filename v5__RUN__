@@ -11,6 +11,8 @@ import sys
 import re
 import glob
 
+
+
 st.set_page_config(page_title="Rsync File Retriever", page_icon="🔄")
 
 
@@ -66,7 +68,7 @@ def cleanup_old_plots(directory, max_age_hours):
 
 def archive_plots_on_server(remote_host, remote_dir, archive_dir):
     """Move plots and text files from remote directory to archive directory"""
-    # Create archive directory if it doesn't exist
+    
     mkdir_command = f"ssh {remote_host} 'mkdir -p {archive_dir}'"
     
     try:
@@ -78,10 +80,11 @@ def archive_plots_on_server(remote_host, remote_dir, archive_dir):
             timeout=30
         )
         
-        # Move PNG and TXT files to archive
+        
         move_command = (
             f"ssh {remote_host} "
-            f"'mv {remote_dir}/*.png {remote_dir}/*.txt {archive_dir}/ 2>/dev/null || true'"
+            f"'mv {remote_dir}/scan_output* {remote_dir}/*.log {archive_dir}/ 2>/dev/null || true'"
+            # f"'mv {remote_dir}/*.log {archive_dir}/ 2>/dev/null || true'"
         )
         
         result = subprocess.run(
@@ -113,10 +116,11 @@ def flag_plots_on_server(remote_host, remote_dir, flag_dir):
             timeout=30
         )
         
-        # Move PNG and TXT files to flag directory
+        
         move_command = (
             f"ssh {remote_host} "
-            f"'mv {remote_dir}/*.png {remote_dir}/*.txt {flag_dir}/ 2>/dev/null || true'"
+            f"'mv {remote_dir}/scan_output* {remote_dir}/*.log {flag_dir}/ 2>/dev/null || true'"
+            # f"'mv {remote_dir}/*.log {flag_dir}/ 2>/dev/null || true'"
         )
         
         result = subprocess.run(
@@ -143,38 +147,76 @@ def flag_plots_on_server(remote_host, remote_dir, flag_dir):
 # |     however this can be changed in the GUI or changed here in the backend code.                |
 # |     We could as easily use sukap or just local                                                 |
 # *------------------------------------------------------------------------------------------------*
+# def sync_from_spartan(remote_host, remote_dir, local_dir="plots/", serial_number=None):
+#     """Execute rsync command to sync files from structured directory"""
+#     try:
+#         # Find the most recent scan_output directory
+#         find_command = (
+#             f"ssh {remote_host} "
+#             f"'ls -td {remote_dir}/scan_output_* 2>/dev/null | head -n 1'"
+#         )
+        
+#         find_result = subprocess.run(
+#             find_command,
+#             shell=True,
+#             capture_output=True,
+#             text=True,
+#             timeout=30
+#         )
+        
+#         latest_scan_dir = find_result.stdout.strip()
+        
+#         if not latest_scan_dir:
+#             return True, "No scan_output directories found"
+        
+#         # If serial number provided, sync only that SN's directory
+#         if serial_number:
+#             source_path = f"{latest_scan_dir}/{serial_number}/"
+#         else:
+#             source_path = f"{latest_scan_dir}/"
+        
+#         # Sync all files from the latest scan directory structure
+#         # Updated to match new filenames: *_charge.png and *_GAIN.txt
+#         rsync_command = (
+#             f"rsync -avz --include='*/' "
+#             f"--include='*_charge.png' "
+#             f"--include='*_GAIN.txt' "
+#             f"--exclude='*' "
+#             f"{remote_host}:{source_path} {local_dir}"
+#         )
+        
+#         result = subprocess.run(
+#             rsync_command,
+#             shell=True,
+#             capture_output=True,
+#             text=True,
+#             timeout=120
+#         )
+        
+#         if result.returncode == 0:
+#             scan_name = os.path.basename(latest_scan_dir)
+#             sn_msg = f" (SN: {serial_number})" if serial_number else ""
+#             return True, f"Synced from {scan_name}{sn_msg}"
+#         else:
+#             return False, f"Rsync failed with code {result.returncode}"
+        
+#     except Exception as e:
+#         return False, f"Sync error: {str(e)}"
+
 def sync_from_spartan(remote_host, remote_dir, local_dir="plots/", serial_number=None):
-    """Execute rsync command to sync files from structured directory"""
+    """Execute rsync command to sync files from scan_output directories"""
     try:
-        # Find the most recent scan_output directory
-        find_command = (
-            f"ssh {remote_host} "
-            f"'ls -td {remote_dir}/scan_output_* 2>/dev/null | head -n 1'"
-        )
-        
-        find_result = subprocess.run(
-            find_command,
-            shell=True,
-            capture_output=True,
-            text=True,
-            timeout=30
-        )
-        
-        latest_scan_dir = find_result.stdout.strip()
-        
-        if not latest_scan_dir:
-            return True, "No scan_output directories found"
-        
-        # If serial number provided, sync only that SN's directory
+        # If serial number provided, sync only that SN's directory from all scan_output dirs
         if serial_number:
-            source_path = f"{latest_scan_dir}/{serial_number}/"
+            source_path = f"{remote_dir}/scan_output_*/{serial_number}/"
         else:
-            source_path = f"{latest_scan_dir}/"
+            source_path = f"{remote_dir}/scan_output_*/"
         
-        # Sync all files from the latest scan directory structure
+        # Sync all files from scan_output directories
         # Updated to match new filenames: *_charge.png and *_GAIN.txt
         rsync_command = (
             f"rsync -avz --include='*/' "
+            f"--include='scan_output_*/' "
             f"--include='*_charge.png' "
             f"--include='*_GAIN.txt' "
             f"--exclude='*' "
@@ -190,14 +232,14 @@ def sync_from_spartan(remote_host, remote_dir, local_dir="plots/", serial_number
         )
         
         if result.returncode == 0:
-            scan_name = os.path.basename(latest_scan_dir)
             sn_msg = f" (SN: {serial_number})" if serial_number else ""
-            return True, f"Synced from {scan_name}{sn_msg}"
+            return True, f"Synced from scan_output_*{sn_msg}"
         else:
             return False, f"Rsync failed with code {result.returncode}"
         
     except Exception as e:
         return False, f"Sync error: {str(e)}"
+
 
 def parse_theta_phi_from_path(filepath):
     """Extract theta and phi values from filepath"""
@@ -285,6 +327,14 @@ def save_config(config):
 def start_background_executor():
     """Start the background executor as a subprocess"""
     try:
+        # Clean up old status files before starting
+        for file in [CONFIG_FILE, STATUS_FILE, EXECUTOR_PID_FILE]:
+            if os.path.exists(file):
+                try:
+                    os.remove(file)
+                except Exception as e:
+                    print(f"Warning: Could not remove {file}: {e}")
+        
         # Start the background executor
         process = subprocess.Popen(
             [sys.executable, "background_executor.py"],
@@ -607,7 +657,7 @@ with stylable_container(
             'remote_command': st.session_state.remote_command,
             'serial_number': st.session_state.serial_number,  # Add serial number to config
             'total_runs': 21,
-            'interval_seconds': 60
+            'interval_seconds': 7
         }
         save_config(config)
         st.success("Auto-execute started!")
@@ -636,23 +686,38 @@ with stylable_container(
     }
     """,
 ):
-    if st.button("Stop Auto-Execute", type="primary", disabled=not is_running, use_container_width=True, key="stop_auto"):
-        # Just stop the auto-execute, keep executor running
+    if st.button("Stop Auto-Execute", type="primary", disabled=not is_running,
+             use_container_width=True, key="stop_auto"):
+
+        # Stop auto-execute locally
         if os.path.exists(CONFIG_FILE):
             config = load_status()
             if config:
-                config['running'] = False
+                config["running"] = False
                 save_config(config)
-        
+
         if os.path.exists(STATUS_FILE):
             status = load_status()
             if status:
-                status['running'] = False
-                status['message'] = 'Stopped by user'
-                with open(STATUS_FILE, 'w') as f:
+                status["running"] = False
+                status["message"] = "Stopped by user"
+                with open(STATUS_FILE, "w") as f:
                     json.dump(status, f, indent=2)
-        
-        st.success("Auto-execute stopped (executor still running)")
+
+        # Cancel SLURM jobs
+        try:
+            cancel_cmd = f"ssh {st.session_state.remote_host} scancel -u earles"
+            subprocess.run(
+                cancel_cmd,
+                shell=True,
+                check=True,
+                timeout=15
+            )
+            st.success("Auto-execute stopped and SLURM jobs cancelled")
+
+        except subprocess.CalledProcessError as e:
+            st.warning("Auto-execute stopped, but scancel failed")
+
         time.sleep(1)
         st.rerun()
 
@@ -730,6 +795,30 @@ st.caption(
     "Clicking View will also clear old data."
 )
 
+def get_color_from_gain(gain_file_path, normal_range=(0.5e7, 1.5e7)):
+    """
+    Determine color based on gain value
+    Returns: 'green' for healthy, 'red' for poor, 'yellow' for no data
+    """
+    if not gain_file_path or not os.path.exists(gain_file_path):
+        return 'yellow'  # No data
+    
+    try:
+        with open(gain_file_path, 'r') as f:
+            gain_str = f.read().strip()
+            gain_val = float(gain_str)
+            
+            # Define your thresholds here
+            min_normal, max_normal = normal_range
+            
+            if min_normal <= gain_val <= max_normal:
+                return 'green'  # Healthy
+            else:
+                return 'red'  # Poor
+    except (ValueError, Exception):
+        return 'yellow'  # Can't parse = no data
+
+
 plots_dir = "plots"
 N_COLS = 4
 N_ROWS = 5
@@ -775,7 +864,7 @@ def get_theta_phi_from_slot(slot):
 # Display grid
 st.markdown("""
 <style>
-    .grid-button {
+    .grid-button-green {
         background-color: #28a745;
         color: white;
         padding: 20px 10px;
@@ -792,10 +881,43 @@ st.markdown("""
         align-items: center;
         justify-content: center;
     }
-    .grid-button:hover {
+    .grid-button-yellow {
+        background-color: #ffc107;
+        color: #333;
+        padding: 20px 10px;
+        text-align: center;
+        border-radius: 5px;
+        font-weight: bold;
+        font-size: 14px;
+        cursor: pointer;
+        border: 2px solid transparent;
+        transition: all 0.3s;
+        min-height: 100px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+    }
+    .grid-button-red {
+        background-color: #dc3545;
+        color: white;
+        padding: 20px 10px;
+        text-align: center;
+        border-radius: 5px;
+        font-weight: bold;
+        font-size: 14px;
+        cursor: pointer;
+        border: 2px solid transparent;
+        transition: all 0.3s;
+        min-height: 100px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+    }
+    .grid-button-green:hover, .grid-button-yellow:hover, .grid-button-red:hover {
         border-color: #0066cc;
         opacity: 0.9;
-        background-color: #218838;
     }
     .no-data-box {
         background-color: #ffc107;
@@ -830,6 +952,7 @@ st.markdown("""
 slot = 0
 
 # First row - single [0,0] button centered
+# First row - single [0,0] button centered
 col1, col2, col3 = st.columns([1, 2, 1])
 with col2:
     theta, phi = get_theta_phi_from_slot(slot)
@@ -839,11 +962,17 @@ with col2:
     
     if png_file:
         gain_value = get_gain_value_from_file(gain_file)
+        color = get_color_from_gain(gain_file)
+        status_text = {
+            'green': 'Healthy',
+            'yellow': 'No Data',
+            'red': 'Poor'
+        }.get(color, 'No Data')
         
         st.markdown(
             f"""
-            <div class="grid-button">
-                <div>Healthy</div>
+            <div class="grid-button-{color}">
+                <div>{status_text}</div>
                 <div class="gain-label">{gain_value}</div>
                 <div class="coordinate-label">{coord_label}</div>
             </div>
@@ -868,8 +997,8 @@ with col2:
 slot += 1
 
 # Remaining rows - 4 columns each
-for row in range(5):  # 5 rows
-    cols = st.columns(4)  # 4 columns
+for row in range(5):
+    cols = st.columns(4)
     for col in cols:
         theta, phi = get_theta_phi_from_slot(slot)
         coord_label = get_coordinate_label(slot)
@@ -879,11 +1008,17 @@ for row in range(5):  # 5 rows
             
             if png_file:
                 gain_value = get_gain_value_from_file(gain_file)
+                color = get_color_from_gain(gain_file)
+                status_text = {
+                    'green': 'Healthy',
+                    'yellow': 'No Data',
+                    'red': 'Poor'
+                }.get(color, 'No Data')
                 
                 st.markdown(
                     f"""
-                    <div class="grid-button">
-                        <div>Healthy</div>
+                    <div class="grid-button-{color}">
+                        <div>{status_text}</div>
                         <div class="gain-label">{gain_value}</div>
                         <div class="coordinate-label">{coord_label}</div>
                     </div>
