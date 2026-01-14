@@ -1,20 +1,25 @@
 # R12860-Pre-calibration-Live-Data-Monitoring
 GUI that shows current data quality
 
-Test_v1 is the first attempts made to the GUI. The system workflow will need to "live" monitor the data aqcuisition. 
+**Workflow**
+The Live Monitoring GUI sends a job to be executed on a server cluster. This job runs an algorithm to process data quickly and sends data back to the GUI operator. This is to ensure no faults have occurred during data acquisition. The GUI syncronises with the server cluster, receiving a charge distribution plot and a measured value of gain of the PMT. This data is then loaded into the data grid and indicates to the operator whether the gain is within an appropriate operating range or not. 
 
-The main idea of the workflow will be: 
-
-  -> Take small subset of most recent scanning point 
-  
-  -> Process that data to a useful metric -- A measure of data quality -- or even just something simple but understandable to a non-expert
-  
-  -> Output results in a GUI on screen -- merged with Han's GUI. 
-
-Currently v3_full_auto works well. Requirements:
+**Requirements:**
+pip install streamlit
 
 pip install streamlit-autorefresh
 
-Need to run background_executor in pop-up side menu
+pip install streamlit-extras
 
-need pip install streamlit-extras
+PMT Serial Number
+
+**Operation**
+The software requires a background script to be running - "background_executor". This is started on the left-most panel in the GUI. The background_executor enables the software to run automatically while still being interacted with. 
+The server connection details are then confirmed. This is via ssh, and the user confirms what batch script is run on the server cluster. 
+The GUI software stores png and txt files locally for the current run. These need to be delete and can be done so in the drop down bar. 
+
+The operator now _must_ enter the PMT serial number and press enter. Once that is done, the data monitoring can begin. 
+
+The automatic data monitoring will send a command to the server cluster to look for new data. Once the new data is written, the server will process the data into a ROOT file and utilise a python script to output a charge distribution png file and then using zfit will determine the gain of the PMT at the corresponding coordinate and out the gain in a txt file. Those files will then be copied from the server to the local machine automatically through the sync function, and present the 2 files in the Live Data Grid. 
+
+If any data points fall outside the healthy gain range, the operator _must_ flag the data. This will move the data from the operating directory into the FLAG directory. If all the data points are healthy, the operator can archive the data which will move the data into the archive directory. This archiving will also happen automatically when a new scan monitoring run is begun. 
