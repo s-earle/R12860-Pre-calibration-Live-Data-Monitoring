@@ -13,12 +13,12 @@ import glob
 
 
 
-st.set_page_config(page_title="Rsync File Retriever", page_icon="🔄")
+st.set_page_config(page_title="H-K R12860 Precalibration Live Data Monitoring", page_icon="🔄")
 
 
-st.title("Live Data Monitoring")
+st.title("H-K R12860 Precalibration Live Data Monitoring")
 
-st.write("Sync with Spartan HPC for processed charge result")
+st.write("Sync with server cluster")
 
 CONFIG_FILE = "executor_config.json"
 STATUS_FILE = "executor_status.json"
@@ -428,7 +428,7 @@ if "remote_host" not in st.session_state:
     st.session_state.remote_host = "earles@spartan.hpc.unimelb.edu.au"
 
 if "remote_directory" not in st.session_state:
-    st.session_state.remote_directory = "/data/gpfs/projects/punim1378/earles/Precal_GUI"
+    st.session_state.remote_directory = "/data/gpfs/projects/punim1378/earles/Precal_GUI/processing"
 
 if "remote_command" not in st.session_state:
     st.session_state.remote_command = "sbatch ./RUN_smart.slurm {SN}" # This is the executing file on server. We can write anyone we want and then insert it here OR change it on the GUI. 
@@ -502,8 +502,7 @@ if st.sidebar.button("Reset All", type="secondary", use_container_width=True):
 
 st.sidebar.divider()
 
-# Show configuration
-with st.expander("STEP 2: Check Remote Execution Configuration"):
+with st.expander("STEP 2: Check Remote Server Configuration"):
     st.session_state.remote_host = st.text_input(
         "Remote Host",
         value=st.session_state.remote_host
@@ -536,10 +535,10 @@ with st.expander("STEP 3: Configure Local Auto-Cleanup -- Execute before startin
         else:
             st.info("No old files to delete")
     
-    if st.button("Clear ALL Data Now"):
+    if st.button("Clear ALL Data Now", type="primary"):
         if os.path.exists("plots/"):
             count = 0
-            # Use glob to find all PNG files recursively
+            
             all_png_files = glob.glob("plots/**/*.png", recursive=True)
             all_txt_files = glob.glob("plots/**/*.txt", recursive=True)
             
@@ -559,7 +558,7 @@ with st.expander("STEP 3: Configure Local Auto-Cleanup -- Execute before startin
                 except Exception as e:
                     st.error(f"Error deleting {f}: {str(e)}")
             
-            # Optionally remove empty directories
+            # remove empty directories
             try:
                 for root, dirs, files in os.walk("plots/", topdown=False):
                     for dir_name in dirs:
@@ -585,13 +584,13 @@ if is_running:
 
 
 st.divider()
-st.subheader("STEP 4: Serial Number Configuration")
+st.subheader("STEP 4: Enter Serial Number")
 
 if "serial_number" not in st.session_state:
     st.session_state.serial_number = ""
 
 serial_number_input = st.text_input(
-    "Enter Detector Serial Number:",
+    "Enter PMT Serial Number:",
     value=st.session_state.serial_number,
     placeholder="e.g., SN12345",
     help="This serial number will be used to locate the correct data files on the server",
@@ -600,7 +599,6 @@ serial_number_input = st.text_input(
 
 st.session_state.serial_number = serial_number_input
 
-# Validation indicator
 if st.session_state.serial_number.strip():
     st.success(f"✓ Serial Number set: {st.session_state.serial_number}")
 else:
@@ -1044,13 +1042,33 @@ for row in range(5):
         slot += 1
 
 if st.session_state.selected_plot:
-    st.divider()
-    st.subheader("Selected Data")
-    st.image(
-        st.session_state.selected_plot,
-        use_container_width=True,
-        caption=os.path.basename(st.session_state.selected_plot)
-    )
+    # Check if the file still exists
+    if not os.path.exists(st.session_state.selected_plot):
+        # File was deleted, clear the selection
+        st.session_state.selected_plot = None
+        st.session_state.selected_gain = None
+        st.rerun()
+    else:
+        st.divider()
+        col_plot, col_hide = st.columns([4, 1])
+        
+        with col_plot:
+            st.subheader("Selected Data")
+        
+        with col_hide:
+            if st.button("Hide Plot", key="hide_plot", use_container_width=True):
+                st.session_state.selected_plot = None
+                st.session_state.selected_gain = None
+                st.rerun()
+        
+        st.image(
+            st.session_state.selected_plot,
+            use_container_width=True,
+            caption=os.path.basename(st.session_state.selected_plot)
+        )
+        
+        if st.session_state.selected_gain:
+            st.info(st.session_state.selected_gain)
 
 
 st.divider()
