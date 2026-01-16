@@ -28,63 +28,7 @@ def save_status(status_data):
     with open(STATUS_FILE, 'w') as f:
         json.dump(status_data, f, indent=2)
 
-# def sync_from_spartan(remote_host, remote_dir, local_dir="plots/", serial_number=None):
-#     """Execute rsync command to sync files from structured directory"""
-#     try:
-#         # Find the most recent scan_output directory
-#         find_command = (
-#             f"ssh {remote_host} "
-#             f"'ls -td {remote_dir}/scan_output_* 2>/dev/null | head -n 1'"
-#         )
-        
-#         find_result = subprocess.run(
-#             find_command,
-#             shell=True,
-#             capture_output=True,
-#             text=True,
-#             timeout=30
-#         )
-        
-#         latest_scan_dir = find_result.stdout.strip()
-        
-#         if not latest_scan_dir:
-#             return True, "No scan_output directories found"
-        
-#         # If serial number provided, sync only that SN's directory
-#         if serial_number:
-#             source_path = f"{latest_scan_dir}/{serial_number}/"
-#         else:
-#             source_path = f"{latest_scan_dir}/"
-        
-#         # Sync all files from the latest scan directory structure
-#         # Updated to match new filenames: *_charge.png and *_GAIN.txt
-#         rsync_command = (
-#             f"rsync -avz --include='*/' "
-#             f"--include='*_charge.png' "
-#             f"--include='*_GAIN.txt' "
-#             f"--exclude='*' "
-#             f"{remote_host}:{source_path} {local_dir}"
-#         )
-        
-#         result = subprocess.run(
-#             rsync_command,
-#             shell=True,
-#             capture_output=True,
-#             text=True,
-#             timeout=120
-#         )
-        
-#         if result.returncode == 0:
-#             scan_name = os.path.basename(latest_scan_dir)
-#             sn_msg = f" (SN: {serial_number})" if serial_number else ""
-#             return True, f"Synced from {scan_name}{sn_msg}"
-#         else:
-#             return False, f"Rsync failed with code {result.returncode}"
-        
-#     except Exception as e:
-#         return False, f"Sync error: {str(e)}"
-
-def sync_from_spartan(remote_host, remote_dir, local_dir="plots/", serial_number=None):
+def sync_from_spartan(remote_host, remote_dir, local_dir="synced_data/", serial_number=None):
     """Execute rsync command to sync files from scan_output directories"""
     try:
         # If serial number provided, sync only that SN's directory from all scan_output dirs
@@ -167,7 +111,6 @@ def main():
             if config and config.get('running'):
                 print(f"\n[{datetime.now().strftime('%H:%M:%S')}] Starting live monitoring")
                 
-                # Update status
                 save_status({
                     'running': True,
                     'completed': 0,
