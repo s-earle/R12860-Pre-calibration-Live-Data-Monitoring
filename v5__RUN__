@@ -25,7 +25,7 @@ STATUS_FILE = "executor_status.json"
 EXECUTOR_PID_FILE = "executor_pid.txt"
 
 # *---- Remove old data: --------------------------------------------------------------------------*
-def cleanup_old_plots(directory, max_age_hours):
+def cleanup_old_data(directory, max_age_hours):
     """Delete data files older than max_age_hours"""
     if not os.path.exists(directory):
         return 0
@@ -66,7 +66,7 @@ def cleanup_old_plots(directory, max_age_hours):
     return deleted_count
 
 
-def archive_plots_on_server(remote_host, remote_dir, archive_dir):
+def archive_data_on_server(remote_host, remote_dir, archive_dir):
     """Move plots and text files from remote directory to archive directory"""
     
     mkdir_command = f"ssh {remote_host} 'mkdir -p {archive_dir}'"
@@ -102,7 +102,7 @@ def archive_plots_on_server(remote_host, remote_dir, archive_dir):
     except Exception as e:
         return False, f"Archive error: {str(e)}"
 
-def flag_plots_on_server(remote_host, remote_dir, flag_dir):
+def flag_data_on_server(remote_host, remote_dir, flag_dir):
     """Move plots and text files from remote directory to flagged directory"""
     # Create flag directory if it doesn't exist
     mkdir_command = f"ssh {remote_host} 'mkdir -p {flag_dir}'"
@@ -147,63 +147,7 @@ def flag_plots_on_server(remote_host, remote_dir, flag_dir):
 # |     however this can be changed in the GUI or changed here in the backend code.                |
 # |     We could as easily use sukap or just local                                                 |
 # *------------------------------------------------------------------------------------------------*
-# def sync_from_spartan(remote_host, remote_dir, local_dir="plots/", serial_number=None):
-#     """Execute rsync command to sync files from structured directory"""
-#     try:
-#         # Find the most recent scan_output directory
-#         find_command = (
-#             f"ssh {remote_host} "
-#             f"'ls -td {remote_dir}/scan_output_* 2>/dev/null | head -n 1'"
-#         )
-        
-#         find_result = subprocess.run(
-#             find_command,
-#             shell=True,
-#             capture_output=True,
-#             text=True,
-#             timeout=30
-#         )
-        
-#         latest_scan_dir = find_result.stdout.strip()
-        
-#         if not latest_scan_dir:
-#             return True, "No scan_output directories found"
-        
-#         # If serial number provided, sync only that SN's directory
-#         if serial_number:
-#             source_path = f"{latest_scan_dir}/{serial_number}/"
-#         else:
-#             source_path = f"{latest_scan_dir}/"
-        
-#         # Sync all files from the latest scan directory structure
-#         # Updated to match new filenames: *_charge.png and *_GAIN.txt
-#         rsync_command = (
-#             f"rsync -avz --include='*/' "
-#             f"--include='*_charge.png' "
-#             f"--include='*_GAIN.txt' "
-#             f"--exclude='*' "
-#             f"{remote_host}:{source_path} {local_dir}"
-#         )
-        
-#         result = subprocess.run(
-#             rsync_command,
-#             shell=True,
-#             capture_output=True,
-#             text=True,
-#             timeout=120
-#         )
-        
-#         if result.returncode == 0:
-#             scan_name = os.path.basename(latest_scan_dir)
-#             sn_msg = f" (SN: {serial_number})" if serial_number else ""
-#             return True, f"Synced from {scan_name}{sn_msg}"
-#         else:
-#             return False, f"Rsync failed with code {result.returncode}"
-        
-#     except Exception as e:
-#         return False, f"Sync error: {str(e)}"
-
-def sync_from_spartan(remote_host, remote_dir, local_dir="plots/", serial_number=None):
+def sync_from_spartan(remote_host, remote_dir, local_dir="synced_data/", serial_number=None):
     """Execute rsync command to sync files from scan_output directories"""
     try:
         # If serial number provided, sync only that SN's directory from all scan_output dirs
@@ -268,10 +212,10 @@ def get_slot_from_theta_phi(theta, phi):
     
     return None
 
-def find_files_by_theta_phi(plots_dir, theta, phi):
+def find_files_by_theta_phi(sync_data_dir, theta, phi):
     """Find PNG and TXT files for specific theta/phi coordinates"""
     # Search pattern for the specific coordinates - updated for new naming
-    pattern = f"{plots_dir}/**/data_theta{theta}_phi{phi}/*_theta{theta}_phi{phi}_charge.png"
+    pattern = f"{sync_data_dir}/**/data_theta{theta}_phi{phi}/*_theta{theta}_phi{phi}_charge.png"
     png_files = glob.glob(pattern, recursive=True)
     
     if not png_files:
@@ -392,11 +336,9 @@ def stop_background_executor():
 
 def get_gain_value(plot_path):
     """Extract gain value from corresponding text file"""
-    # Try multiple possible text file locations/names
     base_name = os.path.splitext(plot_path)[0]
     txt_path = base_name + 'gain*.txt'
     
-    # Also try looking for gain_result.txt in same directory
     if not os.path.exists(txt_path):
         dir_path = os.path.dirname(plot_path)
         txt_path = os.path.join(dir_path, 'gain_result*.txt')
@@ -447,7 +389,7 @@ if "selected_plot" not in st.session_state:
     st.session_state.selected_plot = None
 
 # Automatic cleanup on page load
-cleanup_old_plots("plots/", st.session_state.cleanup_time_hours)
+cleanup_old_data("synced_data/", st.session_state.cleanup_time_hours)
 
 # Check background executor status
 status = load_status()
@@ -529,18 +471,18 @@ with st.expander("STEP 3: Configure Local Auto-Cleanup -- Execute before startin
     st.session_state.cleanup_time_hours = cleanup_hours
     
     if st.button("Clear Old Data Now"):
-        deleted = cleanup_old_plots("plots/", st.session_state.cleanup_time_hours)
+        deleted = cleanup_old_data("synced_data/", st.session_state.cleanup_time_hours)
         if deleted > 0:
             st.success(f"Deleted {deleted} old data file(s)")
         else:
             st.info("No old files to delete")
     
     if st.button("Clear ALL Data Now", type="primary"):
-        if os.path.exists("plots/"):
+        if os.path.exists("synced_data/"):
             count = 0
             
-            all_png_files = glob.glob("plots/**/*.png", recursive=True)
-            all_txt_files = glob.glob("plots/**/*.txt", recursive=True)
+            all_png_files = glob.glob("synced_data/**/*.png", recursive=True)
+            all_txt_files = glob.glob("synced_data/**/*.txt", recursive=True)
             
             # Delete PNG files
             for f in all_png_files:
@@ -560,7 +502,7 @@ with st.expander("STEP 3: Configure Local Auto-Cleanup -- Execute before startin
             
             # remove empty directories
             try:
-                for root, dirs, files in os.walk("plots/", topdown=False):
+                for root, dirs, files in os.walk("synced_data/", topdown=False):
                     for dir_name in dirs:
                         dir_path = os.path.join(root, dir_name)
                         try:
@@ -636,7 +578,7 @@ with stylable_container(
                  key="start_auto"):
         # First, archive existing data on server
         st.info("Archiving existing data on server before starting...")
-        success, message = archive_plots_on_server(
+        success, message = archive_data_on_server(
             st.session_state.remote_host,
             st.session_state.remote_directory,
             st.session_state.archive_directory
@@ -777,11 +719,11 @@ if st.button("Manual Sync", type="secondary", use_container_width=True):
     else:
         st.warning("⚠️ Sync completed with issues")
     
-    plots_dir = "plots/"
-    if os.path.exists(plots_dir):
-        png_files = [f for f in os.listdir(plots_dir) if f.endswith('.png')]
+    sync_data_dir = "synced_data/"
+    if os.path.exists(sync_data_dir):
+        png_files = [f for f in os.listdir(sync_data_dir) if f.endswith('.png')]
         if png_files:
-            latest_file = max([os.path.join(plots_dir, f) for f in png_files], key=os.path.getmtime)
+            latest_file = max([os.path.join(sync_data_dir, f) for f in png_files], key=os.path.getmtime)
             st.subheader("Latest Retrieved File:")
             st.image(latest_file, caption=os.path.basename(latest_file))
 
@@ -817,22 +759,22 @@ def get_color_from_gain(gain_file_path, normal_range=(0.5e7, 1.5e7)):
         return 'yellow'  # Can't parse = no data
 
 
-plots_dir = "plots"
+sync_data_dir = "synced_data"
 N_COLS = 4
 N_ROWS = 5
 MAX_PLOTS = N_COLS * N_ROWS + 1
 
-if os.path.exists(plots_dir):
+if os.path.exists(sync_data_dir):
     png_files = [
-        os.path.join(plots_dir, f)
-        for f in os.listdir(plots_dir)
+        os.path.join(sync_data_dir, f)
+        for f in os.listdir(sync_data_dir)
         if f.endswith(".png")
     ]
 else:
     png_files = []
 
-if not os.path.exists(plots_dir):
-    st.warning(f"Directory does not exist: {plots_dir}")
+if not os.path.exists(sync_data_dir):
+    st.warning(f"Directory does not exist: {sync_data_dir}")
 
 png_files = sorted(png_files, key=os.path.getmtime, reverse=True)
 png_files = png_files[:MAX_PLOTS]
@@ -956,7 +898,7 @@ with col2:
     theta, phi = get_theta_phi_from_slot(slot)
     coord_label = get_coordinate_label(slot)
     
-    png_file, gain_file = find_files_by_theta_phi("plots", theta, phi)
+    png_file, gain_file = find_files_by_theta_phi("synced_data", theta, phi)
     
     if png_file:
         gain_value = get_gain_value_from_file(gain_file)
@@ -1002,7 +944,7 @@ for row in range(5):
         coord_label = get_coordinate_label(slot)
 
         with col:
-            png_file, gain_file = find_files_by_theta_phi("plots", theta, phi)
+            png_file, gain_file = find_files_by_theta_phi("synced_data", theta, phi)
             
             if png_file:
                 gain_value = get_gain_value_from_file(gain_file)
@@ -1093,7 +1035,7 @@ with stylable_container(
 ):
     if st.button("⚠️ STEP 5: Flag Data as ABNORMAL", type="primary", use_container_width=True, key="flag_data"):
         st.info("Flagging data on server...")
-        success, message = flag_plots_on_server(
+        success, message = flag_data_on_server(
             st.session_state.remote_host,
             st.session_state.remote_directory,
             st.session_state.flag_directory
@@ -1121,7 +1063,7 @@ with st.expander("Configure Archive and Flag Directories"):
     
     if st.button("Archive Server Data (Manual)", type="secondary", use_container_width=True):
         st.info("Archiving data on server...")
-        success, message = archive_plots_on_server(
+        success, message = archive_data_on_server(
             st.session_state.remote_host,
             st.session_state.remote_directory,
             st.session_state.archive_directory
@@ -1137,10 +1079,10 @@ with st.expander("Configure Archive and Flag Directories"):
 st.divider()
 st.subheader("Data Files in Local Directory")
 
-plots_dir = "plots/"
-if os.path.exists(plots_dir):
+sync_data_dir = "synced_data/"
+if os.path.exists(sync_data_dir):
     # Find all PNG files recursively
-    png_files = glob.glob(f"{plots_dir}/**/live_data_*.png", recursive=True)
+    png_files = glob.glob(f"{sync_data_dir}/**/live_data_*.png", recursive=True)
     
     if png_files:
         # Sort by modification time
@@ -1151,9 +1093,9 @@ if os.path.exists(plots_dir):
         # Group by theta/phi
         for f in png_files[:20]:  # Show most recent 20
             theta, phi = parse_theta_phi_from_path(f)
-            rel_path = os.path.relpath(f, plots_dir)
+            rel_path = os.path.relpath(f, sync_data_dir)
             st.text(f"[θ={theta}, φ={phi}] {rel_path}")
     else:
         st.info("No files found in the data directory yet.")
 else:
-    st.warning(f"Directory does not exist: {plots_dir}")
+    st.warning(f"Directory does not exist: {sync_data_dir}")
