@@ -1,7 +1,7 @@
 # R12860-Pre-calibration-Live-Data-Monitoring
 GUI that shows current data quality
 
-**Workflow**
+## Workflow
 The Live Monitoring GUI sends a job to be executed on a server cluster. This job runs an algorithm to process data quickly and sends data back to the GUI operator. This is to ensure no faults have occurred during data acquisition. The GUI syncronises with the server cluster, receiving a charge distribution plot and a measured value of gain of the PMT. This data is then loaded into the data grid and indicates to the operator whether the gain is within an appropriate operating range or not. 
 
 **Requirements:**
