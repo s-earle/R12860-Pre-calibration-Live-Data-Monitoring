@@ -11,7 +11,8 @@ import sys
 import re
 import glob
 
-
+SYNC_DATA_DIR = "synced_data/"
+os.makedirs(SYNC_DATA_DIR, exist_ok=True)
 
 st.set_page_config(page_title="H-K R12860 Precalibration Live Data Monitoring", page_icon="🔄")
 
@@ -28,6 +29,7 @@ EXECUTOR_PID_FILE = "executor_pid.txt"
 def cleanup_old_data(directory, max_age_hours):
     """Delete data files older than max_age_hours"""
     if not os.path.exists(directory):
+        os.makedirs(directory, exist_ok=True)
         return 0
     
     current_time = time.time()
