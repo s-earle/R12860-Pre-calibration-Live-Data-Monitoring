@@ -1,19 +1,33 @@
 # R12860-Pre-calibration-Live-Data-Monitoring
 GUI that shows current data quality
 
-## Workflow
-The Live Monitoring GUI sends a job to be executed on a server cluster. This job runs an algorithm to process data quickly and sends data back to the GUI operator. This is to ensure no faults have occurred during data acquisition. The GUI syncronises with the server cluster, receiving a charge distribution plot and a measured value of gain of the PMT. This data is then loaded into the data grid and indicates to the operator whether the gain is within an appropriate operating range or not. 
+## Operation Instructions
+How to run and use the live monitoring software:
+ In terminal, run:
+    '''
+    streamlit run R12860_LIVE_MONITORING.py
+    '''
+1. Click Start under STEP 1: Background Executor
+2. Check Remote server configuration under STEP 2
+3. Clean-up local data files under STEP 3 - it is recomended to clear all data now
+4. Enter the PMT serial number under STEP 4 and hit 'enter'
+5. Click 'RUN LIVE MONITORING
+6. Once scan has completed, either Flag or archive data depending on data quality - archiving will occur automatically when the next scan begins 
 
 **Requirements:**
+'''
 pip install streamlit
 
 pip install streamlit-autorefresh
 
 pip install streamlit-extras
-
+'''
 PMT Serial Number
 
-**Operation**
+## Workflow
+The Live Monitoring GUI sends a job to be executed on a server cluster. This job runs an algorithm to process data quickly and sends data back to the GUI operator. This is to ensure no faults have occurred during data acquisition. The GUI syncronises with the server cluster, receiving a charge distribution plot and a measured value of gain of the PMT. This data is then loaded into the data grid and indicates to the operator whether the gain is within an appropriate operating range or not. 
+
+## Operation 
 The software requires a background script to be running - "background_executor". This is started on the left-most panel in the GUI. The background_executor enables the software to run automatically while still being interacted with. 
 The server connection details are then confirmed. This is via ssh, and the user confirms what batch script is run on the server cluster. 
 The GUI software stores png and txt files locally for the current run. These need to be delete and can be done so in the drop down bar. 

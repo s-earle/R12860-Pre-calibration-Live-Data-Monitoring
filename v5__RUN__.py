@@ -459,7 +459,7 @@ with st.expander("STEP 2: Check Remote Server Configuration"):
     )
 
 
-with st.expander("STEP 3: Configure Local Auto-Cleanup -- Execute before starting Scan"):
+with st.expander("STEP 3: Local Data-Cleanup -- Execute before starting Scan"):
     cleanup_hours = st.number_input(
         "Delete data files older than (hours)",
         min_value=1,
@@ -1015,7 +1015,7 @@ if st.session_state.selected_plot:
 
 st.divider()
 
-# Red button for Flag - STEP 5
+
 with stylable_container(
     "red_button",
     css_styles="""
@@ -1033,7 +1033,7 @@ with stylable_container(
     }
     """,
 ):
-    if st.button("⚠️ STEP 5: Flag Data as ABNORMAL", type="primary", use_container_width=True, key="flag_data"):
+    if st.button("⚠️ STEP 6: Flag Data as ABNORMAL", type="primary", use_container_width=True, key="flag_data"):
         st.info("Flagging data on server...")
         success, message = flag_data_on_server(
             st.session_state.remote_host,
