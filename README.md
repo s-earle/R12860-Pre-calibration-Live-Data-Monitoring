@@ -15,13 +15,15 @@ How to run and use the live monitoring software:
 6. Once scan has completed, either Flag or archive data depending on data quality - archiving will occur automatically when the next scan begins 
 
 **Requirements:**
-'''
+```
+
 pip install streamlit
 
 pip install streamlit-autorefresh
 
 pip install streamlit-extras
-'''
+
+```
 PMT Serial Number
 
 ## Workflow
