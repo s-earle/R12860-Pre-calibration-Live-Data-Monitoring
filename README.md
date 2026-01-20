@@ -1,12 +1,15 @@
 # R12860-Pre-calibration-Live-Data-Monitoring
 GUI that shows current data quality
 
-## Operation Instructions
+## Quick start Instructions:
 How to run and use the live monitoring software:
- In terminal, run:
-    '''
-    streamlit run R12860_LIVE_MONITORING.py
-    '''
+
+ Open terminal and enter command:
+```
+streamlit run R12860_LIVE_MONITORING.py
+```
+A Streamlit window will open in the installed browser, which can be employed as follows:
+
 1. Click Start under STEP 1: Background Executor
 2. Check Remote server configuration under STEP 2
 3. Clean-up local data files under STEP 3 - it is recomended to clear all data now

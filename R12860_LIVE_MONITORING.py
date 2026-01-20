@@ -36,7 +36,6 @@ def cleanup_old_data(directory, max_age_hours):
     max_age_seconds = max_age_hours * 3600
     deleted_count = 0
     
-    # Find all PNG and TXT files recursively
     png_files = glob.glob(f"{directory}/**/*.png", recursive=True)
     txt_files = glob.glob(f"{directory}/**/*_GAIN.txt", recursive=True)
     
@@ -226,7 +225,6 @@ def find_files_by_theta_phi(sync_data_dir, theta, phi):
     # Get the most recent file
     png_file = max(png_files, key=os.path.getmtime)
     
-    # Find corresponding gain file
     # Replace _charge.png with _GAIN.txt
     gain_file = png_file.replace('_charge.png', '_GAIN.txt')
     
@@ -328,7 +326,7 @@ def stop_background_executor():
         os.kill(pid, signal.SIGTERM)
         time.sleep(0.5)
         
-        # Clean up PID file
+        # Clean up PID file -- this needs to occur otherwise the next run will not produce new files
         if os.path.exists(EXECUTOR_PID_FILE):
             os.remove(EXECUTOR_PID_FILE)
         
@@ -345,7 +343,6 @@ def get_gain_value(plot_path):
         dir_path = os.path.dirname(plot_path)
         txt_path = os.path.join(dir_path, 'gain_result*.txt')
     
-    # Try just replacing .png with .txt
     if not os.path.exists(txt_path):
         txt_path = plot_path.replace('.png', '.txt')
     
@@ -372,10 +369,10 @@ if "remote_host" not in st.session_state:
     st.session_state.remote_host = "earles@spartan.hpc.unimelb.edu.au"
 
 if "remote_directory" not in st.session_state:
-    st.session_state.remote_directory = "/data/gpfs/projects/punim1378/earles/Precal_GUI/processing"
+    st.session_state.remote_directory = "/data/gpfs/projects/punim1378/earles/Precal_GUI"
 
 if "remote_command" not in st.session_state:
-    st.session_state.remote_command = "sbatch ./RUN_smart.slurm {SN}" # This is the executing file on server. We can write anyone we want and then insert it here OR change it on the GUI. 
+    st.session_state.remote_command = "sbatch ./RUN_LIVE_MONITORING.slurm {SN}" # This is the executing file on server. We can write anyone we want and then insert it here OR change it on the GUI. 
 
 if "archive_directory" not in st.session_state:
     st.session_state.archive_directory = "/data/gpfs/projects/punim1378/earles/Precal_GUI/archive"
