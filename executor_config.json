@@ -1,7 +1,9 @@
 {
   "running": false,
-  "completed": 1,
-  "total": 21,
-  "message": "Synced 1/21",
-  "last_success": false
+  "remote_host": "earles@spartan.hpc.unimelb.edu.au",
+  "remote_directory": "/data/gpfs/projects/punim1378/earles/Precal_GUI",
+  "remote_command": "sbatch ./RUN_LIVE_MONITORING.slurm {SN}",
+  "serial_number": "PMT1",
+  "total_runs": 21,
+  "interval_seconds": 7
 }

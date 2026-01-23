@@ -10,6 +10,8 @@ import signal
 import sys
 import re
 import glob
+from PIL import Image
+import io
 
 SYNC_DATA_DIR = "synced_data/"
 os.makedirs(SYNC_DATA_DIR, exist_ok=True)
@@ -326,7 +328,7 @@ def stop_background_executor():
         os.kill(pid, signal.SIGTERM)
         time.sleep(0.5)
         
-        # Clean up PID file -- this needs to occur otherwise the next run will not produce new files
+        # Clear PID file -- this needs to occur otherwise the next run will not produce new files
         if os.path.exists(EXECUTOR_PID_FILE):
             os.remove(EXECUTOR_PID_FILE)
         
@@ -380,12 +382,16 @@ if "archive_directory" not in st.session_state:
 if "flag_directory" not in st.session_state:
     st.session_state.flag_directory = "/data/gpfs/projects/punim1378/earles/Precal_GUI/FLAG"
 
-
 if "cleanup_time_hours" not in st.session_state:
     st.session_state.cleanup_time_hours = 24
 
 if "selected_plot" not in st.session_state:
     st.session_state.selected_plot = None
+
+if "show_overlay" not in st.session_state:
+    st.session_state.show_overlay = False
+if "example_plot_path" not in st.session_state:
+    st.session_state.example_plot_path = "example_data/GOOD_DATA_charge.png"
 
 # Automatic cleanup on page load
 cleanup_old_data("synced_data/", st.session_state.cleanup_time_hours)
@@ -567,7 +573,6 @@ with stylable_container(
     }
     """,
 ):
-    # Disable button if no serial number
     button_disabled = is_running or not executor_alive or not st.session_state.serial_number.strip()
     
     if st.button("STEP 5: RUN LIVE MONITORING\nStart Auto-Execute (21 runs)", 
@@ -607,7 +612,6 @@ st.caption(
     "This will first archive any existing data on the server, then automatically process data on the server and sync with that data. There is a delay between finishing a scan point and the data coming through."
 )
 
-# Orange button for Stop Auto-Execute
 with stylable_container(
     "orange_button_stop",
     css_styles="""
@@ -645,7 +649,7 @@ with stylable_container(
 
         # Cancel SLURM jobs
         try:
-            cancel_cmd = f"ssh {st.session_state.remote_host} scancel -u earles"
+            cancel_cmd = f"ssh {st.session_state.remote_host} scancel -u earles" # I'll need to make this targeted to be job specififc
             subprocess.run(
                 cancel_cmd,
                 shell=True,
@@ -703,7 +707,6 @@ if st.button("Execute on Server Once (For ONE scan point)", type="secondary", di
         st.error(f"❌ Error: {str(e)}")
 
 
-# Show refresh controls when running
 if is_running:
     st.info("Page auto-refreshes every 5 seconds. All buttons remain clickable!")
     if st.button("Refresh Now", use_container_width=True):
@@ -727,12 +730,33 @@ if st.button("Manual Sync", type="secondary", use_container_width=True):
             st.image(latest_file, caption=os.path.basename(latest_file))
 
 st.divider()
-st.subheader("Recent Scan Data")
-st.caption(
-    "Shows the most recent scan results synced from the server. "
-    "Data will lag slightly behind acquisition. "
-    "Clicking View will also clear old data."
-)
+
+col_grid_title, col_compare_btn = st.columns([4, 1])
+
+with col_grid_title:
+    st.subheader("Recent Scan Data")
+    st.caption(
+        "Shows the most recent scan results synced from the server. "
+        "Data will lag slightly behind acquisition. "
+        "Clicking View will also clear old data."
+    )
+
+with col_compare_btn:
+    example_exists = (st.session_state.example_plot_path and 
+                     os.path.exists(st.session_state.example_plot_path))
+    
+    if st.button(
+        "Compare: ON" if st.session_state.show_overlay else "Compare: OFF",
+        key="toggle_compare_mode",
+        use_container_width=True,
+        disabled=not example_exists,
+        type="primary" if st.session_state.show_overlay else "secondary"
+    ):
+        st.session_state.show_overlay = not st.session_state.show_overlay
+        st.rerun()
+    
+    if not example_exists:
+        st.caption("No reference")
 
 def get_color_from_gain(gain_file_path, normal_range=(0.5e7, 1.5e7)):
     """
@@ -800,7 +824,6 @@ def get_theta_phi_from_slot(slot):
         phi = col_num * 90
         return theta, phi
 
-# Display grid
 st.markdown("""
 <style>
     .grid-button-green {
@@ -983,9 +1006,7 @@ for row in range(5):
         slot += 1
 
 if st.session_state.selected_plot:
-    # Check if the file still exists
     if not os.path.exists(st.session_state.selected_plot):
-        # File was deleted, clear the selection
         st.session_state.selected_plot = None
         st.session_state.selected_gain = None
         st.rerun()
@@ -994,7 +1015,10 @@ if st.session_state.selected_plot:
         col_plot, col_hide = st.columns([4, 1])
         
         with col_plot:
-            st.subheader("Selected Data")
+            if st.session_state.show_overlay:
+                st.subheader("Selected Data (with Reference Overlay)")
+            else:
+                st.subheader("Selected Data")
         
         with col_hide:
             if st.button("Hide Plot", key="hide_plot", use_container_width=True):
@@ -1002,15 +1026,37 @@ if st.session_state.selected_plot:
                 st.session_state.selected_gain = None
                 st.rerun()
         
-        st.image(
-            st.session_state.selected_plot,
-            use_container_width=True,
-            caption=os.path.basename(st.session_state.selected_plot)
-        )
+        example_exists = (st.session_state.example_plot_path and 
+                         os.path.exists(st.session_state.example_plot_path))
+        
+        if st.session_state.show_overlay and example_exists:
+            import base64
+            
+            # Read and encode both images
+            with open(st.session_state.selected_plot, "rb") as f:
+                base_img = base64.b64encode(f.read()).decode()
+            
+            with open(st.session_state.example_plot_path, "rb") as f:
+                overlay_img = base64.b64encode(f.read()).decode()
+
+            st.markdown(f"""
+                <div style="position: relative; width: 100%;">
+                    <img src="data:image/png;base64,{base_img}" style="width: 100%; display: block;">
+                    <img src="data:image/png;base64,{overlay_img}" 
+                         style="position: absolute; top: 0; left: 0; width: 100%;">
+                </div>
+            """, unsafe_allow_html=True)
+            
+            st.caption(f"{os.path.basename(st.session_state.selected_plot)} + Reference Overlay")
+        else:
+            st.image(
+                st.session_state.selected_plot,
+                use_container_width=True,
+                caption=os.path.basename(st.session_state.selected_plot)
+            )
         
         if st.session_state.selected_gain:
             st.info(st.session_state.selected_gain)
-
 
 st.divider()
 

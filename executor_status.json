@@ -1,7 +1,6 @@
 {
   "running": false,
-  "completed": 1,
+  "completed": 21,
   "total": 21,
-  "message": "Stopped by user",
-  "last_success": false
+  "message": "Monitoring complete - Ready for new commands"
 }
