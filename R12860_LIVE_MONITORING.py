@@ -374,7 +374,7 @@ if "remote_directory" not in st.session_state:
     st.session_state.remote_directory = "/data/gpfs/projects/punim1378/earles/Precal_GUI"
 
 if "remote_command" not in st.session_state:
-    st.session_state.remote_command = "sbatch ./RUN_LIVE_MONITORING.slurm {SN}" # This is the executing file on server. We can write anyone we want and then insert it here OR change it on the GUI. 
+    st.session_state.remote_command = "sbatch ./RUN_LIVE_MONITORING_ALL_TEST.slurm {SN}" # This is the executing file on server. We can write anyone we want and then insert it here OR change it on the GUI. 
 
 if "archive_directory" not in st.session_state:
     st.session_state.archive_directory = "/data/gpfs/projects/punim1378/earles/Precal_GUI/archive"

@@ -8,6 +8,7 @@ import subprocess
 import time
 import json
 import os
+import glob
 from datetime import datetime
 
 CONFIG_FILE = "executor_config.json"
@@ -92,6 +93,27 @@ def execute_command(remote_host, remote_dir, remote_command, serial_number=None)
     except Exception as e:
         return False, "", str(e)
 
+def count_data_points(local_dir="synced_data/"):
+    """Count how many data points have been synced"""
+    if not os.path.exists(local_dir):
+        return 0
+    
+    # Count unique theta/phi combinations from PNG files
+    png_files = glob.glob(f"{local_dir}/**/*_charge.png", recursive=True)
+    
+    # Extract unique theta/phi pairs
+    unique_points = set()
+    for f in png_files:
+        # Extract theta and phi from filename
+        import re
+        match = re.search(r'theta(\d+)_phi(\d+)', f)
+        if match:
+            theta = int(match.group(1))
+            phi = int(match.group(2))
+            unique_points.add((theta, phi))
+    
+    return len(unique_points)
+
 def main():
     print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Background executor started")
     print("Waiting for commands...")
@@ -136,35 +158,27 @@ def main():
                     if stderr:
                         print(f"  Error: {stderr[:200]}")
                 
-                # Now just sync periodically while the job runs
-                wait_time = config.get('interval_seconds', 60)
+                # Monitor for new data points appearing
+                previous_count = 0
+                sync_interval = 30  # Check for new data every 30 seconds
+                max_wait_cycles = 720  # Maximum wait time: 720 * 30s = 6 hours
+                wait_cycles = 0
                 
-                for run_num in range(1, config['total_runs'] + 1):
+                while True:
                     # Check if we should stop
                     config = load_config()
                     if not config or not config.get('running'):
                         print(f"[{datetime.now().strftime('%H:%M:%S')}] Monitoring stopped by user")
                         save_status({
                             'running': False,
-                            'completed': run_num - 1,
+                            'completed': previous_count,
                             'total': config.get('total_runs', 0) if config else 0,
                             'message': 'Stopped by user - Ready for new commands'
                         })
                         break
                     
-                    print(f"\n[{datetime.now().strftime('%H:%M:%S')}] Sync cycle {run_num}/{config['total_runs']}")
-                    
-                    # Update status
-                    save_status({
-                        'running': True,
-                        'completed': run_num - 1,
-                        'total': config['total_runs'],
-                        'current_run': run_num,
-                        'message': f'Syncing data {run_num}/{config["total_runs"]}'
-                    })
-                    
                     # Sync files
-                    print("  Syncing files...")
+                    print(f"\n[{datetime.now().strftime('%H:%M:%S')}] Syncing...")
                     sync_success, sync_msg = sync_from_spartan(
                         config['remote_host'],
                         config['remote_directory'],
@@ -172,50 +186,85 @@ def main():
                     )
                     print(f"  {sync_msg}")
                     
-                    # Update status with result
-                    save_status({
-                        'running': True,
-                        'completed': run_num,
-                        'total': config['total_runs'],
-                        'message': f'Synced {run_num}/{config["total_runs"]}',
-                        'last_success': sync_success
-                    })
+                    # Count data points
+                    current_count = count_data_points()
+                    
+                    # Check if new data appeared
+                    if current_count > previous_count:
+                        print(f"  ✓ New data detected! ({previous_count} → {current_count})")
+                        previous_count = current_count
+                        wait_cycles = 0  # Reset timeout counter
+                        
+                        save_status({
+                            'running': True,
+                            'completed': current_count,
+                            'total': config['total_runs'],
+                            'message': f'Synced {current_count}/{config["total_runs"]} data points',
+                            'last_success': sync_success
+                        })
+                        
+                        # Check if all data points collected
+                        if current_count >= config['total_runs']:
+                            print(f"\n[{datetime.now().strftime('%H:%M:%S')}] ✓ All {config['total_runs']} data points collected!")
+                            save_status({
+                                'running': False,
+                                'completed': config['total_runs'],
+                                'total': config['total_runs'],
+                                'message': 'Monitoring complete - All data collected'
+                            })
+                            
+                            # Mark as not running in config
+                            if config:
+                                config['running'] = False
+                                with open(CONFIG_FILE, 'w') as f:
+                                    json.dump(config, f, indent=2)
+                            break
+                    else:
+                        print(f"  Waiting for new data... ({current_count}/{config['total_runs']} points collected)")
+                        wait_cycles += 1
+                        
+                        # Check for timeout
+                        if wait_cycles >= max_wait_cycles:
+                            print(f"\n[{datetime.now().strftime('%H:%M:%S')}] ⚠ Timeout: No new data after {max_wait_cycles * sync_interval}s")
+                            save_status({
+                                'running': False,
+                                'completed': current_count,
+                                'total': config['total_runs'],
+                                'message': f'Timeout - Only {current_count}/{config["total_runs"]} points collected'
+                            })
+                            
+                            if config:
+                                config['running'] = False
+                                with open(CONFIG_FILE, 'w') as f:
+                                    json.dump(config, f, indent=2)
+                            break
+                        
+                        save_status({
+                            'running': True,
+                            'completed': current_count,
+                            'total': config['total_runs'],
+                            'message': f'Waiting for data... ({current_count}/{config["total_runs"]})',
+                            'last_success': sync_success
+                        })
                     
                     # Wait before next sync
-                    if run_num < config['total_runs']:
-                        print(f"  Waiting {wait_time} seconds before next sync...")
-                        
-                        for i in range(wait_time):
-                            # Check for cancellation during wait
-                            config = load_config()
-                            if not config or not config.get('running'):
-                                print(f"\n[{datetime.now().strftime('%H:%M:%S')}] Cancelled during wait")
-                                save_status({
-                                    'running': False,
-                                    'completed': run_num,
-                                    'total': config.get('total_runs', 0) if config else 0,
-                                    'message': 'Stopped by user - Ready for new commands'
-                                })
-                                break
-                            time.sleep(1)
-                        else:
-                            continue
-                        break
-                else:
-                    # All syncs completed
-                    print(f"\n[{datetime.now().strftime('%H:%M:%S')}] ✓ All sync cycles completed!")
-                    save_status({
-                        'running': False,
-                        'completed': config['total_runs'],
-                        'total': config['total_runs'],
-                        'message': 'Monitoring complete - Ready for new commands'
-                    })
-                    
-                    # Mark as not running in config
-                    if config:
-                        config['running'] = False
-                        with open(CONFIG_FILE, 'w') as f:
-                            json.dump(config, f, indent=2)
+                    print(f"  Waiting {sync_interval} seconds before next sync...")
+                    for i in range(sync_interval):
+                        # Check for cancellation during wait
+                        config = load_config()
+                        if not config or not config.get('running'):
+                            print(f"\n[{datetime.now().strftime('%H:%M:%S')}] Cancelled during wait")
+                            save_status({
+                                'running': False,
+                                'completed': current_count,
+                                'total': config.get('total_runs', 0) if config else 0,
+                                'message': 'Stopped by user - Ready for new commands'
+                            })
+                            break
+                        time.sleep(1)
+                    else:
+                        continue
+                    break
             
             # Wait before checking again
             time.sleep(2)
