@@ -12,3 +12,6 @@ As of 20260116:
 6. Need to implement a if crash - kill server jobs
 7. With reference sensors, can/how use SiPM?
 8. Reference sensors may be different tabs on LHS
+9. Get it all visible on one screen
+10. Faster
+11. Auto-stop / and not scancel all jobs for user - just job number
