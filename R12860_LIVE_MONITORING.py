@@ -16,7 +16,7 @@ import io
 SYNC_DATA_DIR = "synced_data/"
 os.makedirs(SYNC_DATA_DIR, exist_ok=True)
 
-st.set_page_config(page_title="H-K R12860 Precalibration Live Data Monitoring", page_icon="🔄")
+st.set_page_config(page_title="H-K R12860 Precalibration Live Data Monitoring", page_icon="🔄", layout="wide")
 
 
 st.title("H-K R12860 Precalibration Live Data Monitoring")
@@ -531,479 +531,277 @@ if is_running:
 
 
 st.divider()
-st.subheader("STEP 4: Enter Serial Number")
 
-if "serial_number" not in st.session_state:
-    st.session_state.serial_number = ""
+left_col, right_col = st.columns([1, 1.5])
 
-serial_number_input = st.text_input(
-    "Enter PMT Serial Number:",
-    value=st.session_state.serial_number,
-    placeholder="e.g., SN12345",
-    help="This serial number will be used to locate the correct data files on the server",
-    key="sn_input"
-)
-
-st.session_state.serial_number = serial_number_input
-
-if st.session_state.serial_number.strip():
-    st.success(f"✓ Serial Number set: {st.session_state.serial_number}")
-else:
-    st.warning("⚠️ Please enter a serial number before starting auto-execute")
-
-st.divider()
-
-
-with stylable_container(
-    "orange_button",
-    css_styles="""
-    button {
-        background-color: #228B22;
-        color: white;
-        border-color: #228B22;
-        height: 80px;
-        font-size: 20px;
-        font-weight: bold;
-        white-space: pre-line;
-        line-height: 1.3;
-    }
-    button:hover {
-        border-color: #0066cc;
-        opacity: 0.9;
-    }
-    """,
-):
-    button_disabled = is_running or not executor_alive or not st.session_state.serial_number.strip()
+with right_col:
+    col_grid_title, col_compare_btn = st.columns([3, 1])
     
-    if st.button("STEP 5: RUN LIVE MONITORING\nStart Auto-Execute (21 runs)", 
-                 type="primary", 
-                 disabled=button_disabled, 
-                 use_container_width=True, 
-                 key="start_auto"):
-        # First, archive existing data on server
-        st.info("Archiving existing data on server before starting...")
-        success, message = archive_data_on_server(
-            st.session_state.remote_host,
-            st.session_state.remote_directory,
-            st.session_state.archive_directory
-        )
+    with col_grid_title:
+        st.subheader("Recent Scan Data")
+    
+    with col_compare_btn:
+        example_exists = (st.session_state.example_plot_path and 
+                         os.path.exists(st.session_state.example_plot_path))
         
-        if success:
-            st.success(f"✅ {message}")
-        else:
-            st.warning(f"⚠️ Archive warning: {message}")
+        if st.button(
+            "Compare: ON" if st.session_state.show_overlay else "Compare: OFF",
+            key="toggle_compare_mode",
+            use_container_width=True,
+            disabled=not example_exists,
+            type="primary" if st.session_state.show_overlay else "secondary"
+        ):
+            st.session_state.show_overlay = not st.session_state.show_overlay
+            st.rerun()
+    
+    st.caption("Shows recent scan results. Data will lag slightly behind acquisition.")
+
+    def get_color_from_gain(gain_file_path, normal_range=(0.5e7, 1.5e7)):
+        """
+        Determine color based on gain value
+        Returns: 'green' for healthy, 'red' for poor, 'yellow' for no data
+        """
+        if not gain_file_path or not os.path.exists(gain_file_path):
+            return 'yellow'  # No data
         
-        # Then start auto-execute
-        config = {
-            'running': True,
-            'remote_host': st.session_state.remote_host,
-            'remote_directory': st.session_state.remote_directory,
-            'remote_command': st.session_state.remote_command,
-            'serial_number': st.session_state.serial_number,  # Add serial number to config
-            'total_runs': 21,
-            'interval_seconds': 7
-        }
-        save_config(config)
-        st.success("Auto-execute started!")
-        time.sleep(2)
-        st.rerun()
-
-st.caption(
-    "This will first archive any existing data on the server, then automatically process data on the server and sync with that data. There is a delay between finishing a scan point and the data coming through."
-)
-
-with stylable_container(
-    "orange_button_stop",
-    css_styles="""
-    button {
-        background-color: #ff8c00;
-        color: white;
-        border-color: #ff8c00;
-        height: 60px;
-        font-size: 18px;
-        font-weight: bold;
-    }
-    button:hover {
-        border-color: #0066cc;
-        opacity: 0.9;
-    }
-    """,
-):
-    if st.button("Stop Auto-Execute", type="primary", disabled=not is_running,
-             use_container_width=True, key="stop_auto"):
-
-        # Stop auto-execute locally
-        if os.path.exists(CONFIG_FILE):
-            config = load_status()
-            if config:
-                config["running"] = False
-                save_config(config)
-
-        if os.path.exists(STATUS_FILE):
-            status = load_status()
-            if status:
-                status["running"] = False
-                status["message"] = "Stopped by user"
-                with open(STATUS_FILE, "w") as f:
-                    json.dump(status, f, indent=2)
-
-        # Cancel SLURM jobs
         try:
-            cancel_cmd = f"ssh {st.session_state.remote_host} scancel -u earles" # I'll need to make this targeted to be job specififc
-            subprocess.run(
-                cancel_cmd,
-                shell=True,
-                check=True,
-                timeout=15
-            )
-            st.success("Auto-execute stopped and SLURM jobs cancelled")
-
-        except subprocess.CalledProcessError as e:
-            st.warning("Auto-execute stopped, but scancel failed")
-
-        time.sleep(1)
-        st.rerun()
-
-if st.button("Execute on Server Once (For ONE scan point)", type="secondary", disabled=is_running or not executor_alive, use_container_width=True):
-    st.info("Syncing files from Server...")
-    sync_from_spartan(st.session_state.remote_host, st.session_state.remote_directory)
-    
-    st.info("Executing command on Server...")
-    
-    ssh_command = (
-        f"ssh {st.session_state.remote_host} "
-        f"'cd {st.session_state.remote_directory} && {st.session_state.remote_command}'"
-    )
-    
-    st.code(ssh_command, language="bash")
-    
-    try:
-        result = subprocess.run(
-            ssh_command,
-            shell=True,
-            capture_output=True,
-            text=True,
-            timeout=120
-        )
-        
-        if result.returncode == 0:
-            st.success("Command executed successfully!")
-        else:
-            st.warning("Command completed with errors")
-        
-        if result.stdout:
-            st.subheader("Output:")
-            st.code(result.stdout, language="bash")
-        
-        if result.stderr:
-            st.subheader("Errors/Messages:")
-            st.code(result.stderr, language="bash")
-        
-        st.info(f"Return code: {result.returncode}")
-            
-    except subprocess.TimeoutExpired:
-        st.error("❌ Command timed out (exceeded 2 minutes)")
-    except Exception as e:
-        st.error(f"❌ Error: {str(e)}")
+            with open(gain_file_path, 'r') as f:
+                gain_str = f.read().strip()
+                gain_val = float(gain_str)
+                
+                # Define your thresholds here
+                min_normal, max_normal = normal_range
+                
+                if min_normal <= gain_val <= max_normal:
+                    return 'green'  # Healthy
+                else:
+                    return 'red'  # Poor
+        except (ValueError, Exception):
+            return 'yellow'  # Can't parse = no data
 
 
-if is_running:
-    st.info("Page auto-refreshes every 5 seconds. All buttons remain clickable!")
-    if st.button("Refresh Now", use_container_width=True):
-        st.rerun()
+    sync_data_dir = "synced_data"
+    N_COLS = 4
+    N_ROWS = 5
+    MAX_PLOTS = N_COLS * N_ROWS + 1
 
-if st.button("Manual Sync", type="secondary", use_container_width=True):
-    st.info("Executing sync... This may take a moment.")
-    
-    sn = st.session_state.serial_number if st.session_state.serial_number.strip() else None
-    if sync_from_spartan(st.session_state.remote_host, st.session_state.remote_directory, serial_number=sn):
-        st.success("Sync completed successfully!")
-    else:
-        st.warning("⚠️ Sync completed with issues")
-    
-    sync_data_dir = "synced_data/"
     if os.path.exists(sync_data_dir):
-        png_files = [f for f in os.listdir(sync_data_dir) if f.endswith('.png')]
-        if png_files:
-            latest_file = max([os.path.join(sync_data_dir, f) for f in png_files], key=os.path.getmtime)
-            st.subheader("Latest Retrieved File:")
-            st.image(latest_file, caption=os.path.basename(latest_file))
-
-st.divider()
-
-col_grid_title, col_compare_btn = st.columns([4, 1])
-
-with col_grid_title:
-    st.subheader("Recent Scan Data")
-    st.caption(
-        "Shows the most recent scan results synced from the server. "
-        "Data will lag slightly behind acquisition. "
-        "Clicking View will also clear old data."
-    )
-
-with col_compare_btn:
-    example_exists = (st.session_state.example_plot_path and 
-                     os.path.exists(st.session_state.example_plot_path))
-    
-    if st.button(
-        "Compare: ON" if st.session_state.show_overlay else "Compare: OFF",
-        key="toggle_compare_mode",
-        use_container_width=True,
-        disabled=not example_exists,
-        type="primary" if st.session_state.show_overlay else "secondary"
-    ):
-        st.session_state.show_overlay = not st.session_state.show_overlay
-        st.rerun()
-    
-    if not example_exists:
-        st.caption("No reference")
-
-def get_color_from_gain(gain_file_path, normal_range=(0.5e7, 1.5e7)):
-    """
-    Determine color based on gain value
-    Returns: 'green' for healthy, 'red' for poor, 'yellow' for no data
-    """
-    if not gain_file_path or not os.path.exists(gain_file_path):
-        return 'yellow'  # No data
-    
-    try:
-        with open(gain_file_path, 'r') as f:
-            gain_str = f.read().strip()
-            gain_val = float(gain_str)
-            
-            # Define your thresholds here
-            min_normal, max_normal = normal_range
-            
-            if min_normal <= gain_val <= max_normal:
-                return 'green'  # Healthy
-            else:
-                return 'red'  # Poor
-    except (ValueError, Exception):
-        return 'yellow'  # Can't parse = no data
-
-
-sync_data_dir = "synced_data"
-N_COLS = 4
-N_ROWS = 5
-MAX_PLOTS = N_COLS * N_ROWS + 1
-
-if os.path.exists(sync_data_dir):
-    png_files = [
-        os.path.join(sync_data_dir, f)
-        for f in os.listdir(sync_data_dir)
-        if f.endswith(".png")
-    ]
-else:
-    png_files = []
-
-if not os.path.exists(sync_data_dir):
-    st.warning(f"Directory does not exist: {sync_data_dir}")
-
-png_files = sorted(png_files, key=os.path.getmtime, reverse=True)
-png_files = png_files[:MAX_PLOTS]
-
-def get_coordinate_label(slot):
-    """Convert slot to [theta, phi] label"""
-    if slot == 0:
-        return "[0, 0]"
+        png_files = [
+            os.path.join(sync_data_dir, f)
+            for f in os.listdir(sync_data_dir)
+            if f.endswith(".png")
+        ]
     else:
-        row_num = ((slot - 1) // 4) + 1
-        col_num = (slot - 1) % 4
-        theta = row_num * 10
-        phi = col_num * 90
-        return f"[{theta}, {phi}]"
+        png_files = []
 
-def get_theta_phi_from_slot(slot):
-    """Convert slot to actual theta/phi values"""
-    if slot == 0:
-        return 0, 0
-    else:
-        row_num = ((slot - 1) // 4) + 1
-        col_num = (slot - 1) % 4
-        theta = row_num * 10
-        phi = col_num * 90
-        return theta, phi
+    if not os.path.exists(sync_data_dir):
+        st.warning(f"Directory does not exist: {sync_data_dir}")
 
-st.markdown("""
-<style>
-    .grid-button-green {
-        background-color: #28a745;
-        color: white;
-        padding: 20px 10px;
-        text-align: center;
-        border-radius: 5px;
-        font-weight: bold;
-        font-size: 14px;
-        cursor: pointer;
-        border: 2px solid transparent;
-        transition: all 0.3s;
-        min-height: 100px;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-    }
-    .grid-button-yellow {
-        background-color: #ffc107;
-        color: #333;
-        padding: 20px 10px;
-        text-align: center;
-        border-radius: 5px;
-        font-weight: bold;
-        font-size: 14px;
-        cursor: pointer;
-        border: 2px solid transparent;
-        transition: all 0.3s;
-        min-height: 100px;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-    }
-    .grid-button-red {
-        background-color: #dc3545;
-        color: white;
-        padding: 20px 10px;
-        text-align: center;
-        border-radius: 5px;
-        font-weight: bold;
-        font-size: 14px;
-        cursor: pointer;
-        border: 2px solid transparent;
-        transition: all 0.3s;
-        min-height: 100px;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-    }
-    .grid-button-green:hover, .grid-button-yellow:hover, .grid-button-red:hover {
-        border-color: #0066cc;
-        opacity: 0.9;
-    }
-    .no-data-box {
-        background-color: #ffc107;
-        color: #333;
-        padding: 20px 10px;
-        text-align: center;
-        border-radius: 5px;
-        font-weight: bold;
-        font-size: 14px;
-        border: 1px solid #e0a800;
-        min-height: 100px;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-    }
-    .coordinate-label {
-        font-size: 12px;
-        margin-top: 5px;
-        opacity: 0.9;
-        font-weight: bold;
-    }
-    .gain-label {
-        font-size: 11px;
-        margin-top: 3px;
-        opacity: 0.95;
-        font-weight: bold;
-    }
-</style>
-""", unsafe_allow_html=True)
+    png_files = sorted(png_files, key=os.path.getmtime, reverse=True)
+    png_files = png_files[:MAX_PLOTS]
 
-slot = 0
+    def get_coordinate_label(slot):
+        """Convert slot to [theta, phi] label"""
+        if slot == 0:
+            return "[0, 0]"
+        else:
+            row_num = ((slot - 1) // 4) + 1
+            col_num = (slot - 1) % 4
+            theta = row_num * 10
+            phi = col_num * 90
+            return f"[{theta}, {phi}]"
 
-# First row - single [0,0] button centered
-# First row - single [0,0] button centered
-col1, col2, col3 = st.columns([1, 2, 1])
-with col2:
-    theta, phi = get_theta_phi_from_slot(slot)
-    coord_label = get_coordinate_label(slot)
-    
-    png_file, gain_file = find_files_by_theta_phi("synced_data", theta, phi)
-    
-    if png_file:
-        gain_value = get_gain_value_from_file(gain_file)
-        color = get_color_from_gain(gain_file)
-        status_text = {
-            'green': 'Healthy',
-            'yellow': 'No Data',
-            'red': 'Poor'
-        }.get(color, 'No Data')
-        
-        st.markdown(
-            f"""
-            <div class="grid-button-{color}">
-                <div>{status_text}</div>
-                <div class="gain-label">{gain_value}</div>
-                <div class="coordinate-label">{coord_label}</div>
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
-        
-        if st.button("View", key=f"view_{slot}", use_container_width=True):
-            st.session_state.selected_plot = png_file
-            st.session_state.selected_gain = gain_value
-    else:
-        st.markdown(
-            f"""
-            <div class="no-data-box">
-                <div>⚠ No Data</div>
-                <div class="coordinate-label">{coord_label}</div>
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
+    def get_theta_phi_from_slot(slot):
+        """Convert slot to actual theta/phi values"""
+        if slot == 0:
+            return 0, 0
+        else:
+            row_num = ((slot - 1) // 4) + 1
+            col_num = (slot - 1) % 4
+            theta = row_num * 10
+            phi = col_num * 90
+            return theta, phi
 
-slot += 1
+    st.markdown("""
+    <style>
+        .grid-button-green {
+            background-color: #28a745;
+            color: white;
+            padding: 20px 10px;
+            text-align: center;
+            border-radius: 5px;
+            font-weight: bold;
+            font-size: 14px;
+            cursor: pointer;
+            border: 2px solid transparent;
+            transition: all 0.3s;
+            min-height: 100px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+        .grid-button-yellow {
+            background-color: #ffc107;
+            color: #333;
+            padding: 20px 10px;
+            text-align: center;
+            border-radius: 5px;
+            font-weight: bold;
+            font-size: 14px;
+            cursor: pointer;
+            border: 2px solid transparent;
+            transition: all 0.3s;
+            min-height: 100px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+        .grid-button-red {
+            background-color: #dc3545;
+            color: white;
+            padding: 20px 10px;
+            text-align: center;
+            border-radius: 5px;
+            font-weight: bold;
+            font-size: 14px;
+            cursor: pointer;
+            border: 2px solid transparent;
+            transition: all 0.3s;
+            min-height: 100px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+        .grid-button-green:hover, .grid-button-yellow:hover, .grid-button-red:hover {
+            border-color: #0066cc;
+            opacity: 0.9;
+        }
+        .no-data-box {
+            background-color: #ffc107;
+            color: #333;
+            padding: 20px 10px;
+            text-align: center;
+            border-radius: 5px;
+            font-weight: bold;
+            font-size: 14px;
+            border: 1px solid #e0a800;
+            min-height: 100px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+        .coordinate-label {
+            font-size: 12px;
+            margin-top: 5px;
+            opacity: 0.9;
+            font-weight: bold;
+        }
+        .gain-label {
+            font-size: 11px;
+            margin-top: 3px;
+            opacity: 0.95;
+            font-weight: bold;
+        }
+    </style>
+    """, unsafe_allow_html=True)
 
-# Remaining rows - 4 columns each
-for row in range(5):
-    cols = st.columns(4)
-    for col in cols:
+    slot = 0
+
+    # First row - single [0,0] button centered
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
         theta, phi = get_theta_phi_from_slot(slot)
         coord_label = get_coordinate_label(slot)
-
-        with col:
-            png_file, gain_file = find_files_by_theta_phi("synced_data", theta, phi)
+        
+        png_file, gain_file = find_files_by_theta_phi("synced_data", theta, phi)
+        
+        if png_file:
+            gain_value = get_gain_value_from_file(gain_file)
+            color = get_color_from_gain(gain_file)
+            status_text = {
+                'green': 'Healthy',
+                'yellow': 'No Data',
+                'red': 'Poor'
+            }.get(color, 'No Data')
             
-            if png_file:
-                gain_value = get_gain_value_from_file(gain_file)
-                color = get_color_from_gain(gain_file)
-                status_text = {
-                    'green': 'Healthy',
-                    'yellow': 'No Data',
-                    'red': 'Poor'
-                }.get(color, 'No Data')
-                
-                st.markdown(
-                    f"""
-                    <div class="grid-button-{color}">
-                        <div>{status_text}</div>
-                        <div class="gain-label">{gain_value}</div>
-                        <div class="coordinate-label">{coord_label}</div>
-                    </div>
-                    """,
-                    unsafe_allow_html=True
-                )
-                
-                if st.button("View", key=f"view_{slot}", use_container_width=True):
-                    st.session_state.selected_plot = png_file
-                    st.session_state.selected_gain = gain_value
-                
-            else:
-                st.markdown(
-                    f"""
-                    <div class="no-data-box">
-                        <div>⚠ No Data</div>
-                        <div class="coordinate-label">{coord_label}</div>
-                    </div>
-                    """,
-                    unsafe_allow_html=True
-                )
+            st.markdown(
+                f"""
+                <div class="grid-button-{color}">
+                    <div>{status_text}</div>
+                    <div class="gain-label">{gain_value}</div>
+                    <div class="coordinate-label">{coord_label}</div>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+            
+            if st.button("View", key=f"view_{slot}", use_container_width=True):
+                st.session_state.selected_plot = png_file
+                st.session_state.selected_gain = gain_value
+        else:
+            st.markdown(
+                f"""
+                <div class="no-data-box">
+                    <div>⚠ No Data</div>
+                    <div class="coordinate-label">{coord_label}</div>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
 
-        slot += 1
+    slot += 1
+
+    # Remaining rows - 4 columns each
+    for row in range(5):
+        cols = st.columns(4)
+        for col in cols:
+            theta, phi = get_theta_phi_from_slot(slot)
+            coord_label = get_coordinate_label(slot)
+
+            with col:
+                png_file, gain_file = find_files_by_theta_phi("synced_data", theta, phi)
+                
+                if png_file:
+                    gain_value = get_gain_value_from_file(gain_file)
+                    color = get_color_from_gain(gain_file)
+                    status_text = {
+                        'green': 'Healthy',
+                        'yellow': 'No Data',
+                        'red': 'Poor'
+                    }.get(color, 'No Data')
+                    
+                    st.markdown(
+                        f"""
+                        <div class="grid-button-{color}">
+                            <div>{status_text}</div>
+                            <div class="gain-label">{gain_value}</div>
+                            <div class="coordinate-label">{coord_label}</div>
+                        </div>
+                        """,
+                        unsafe_allow_html=True
+                    )
+                    
+                    if st.button("View", key=f"view_{slot}", use_container_width=True):
+                        st.session_state.selected_plot = png_file
+                        st.session_state.selected_gain = gain_value
+                
+                else:
+                    st.markdown(
+                        f"""
+                        <div class="no-data-box">
+                            <div>⚠ No Data</div>
+                            <div class="coordinate-label">{coord_label}</div>
+                        </div>
+                        """,
+                        unsafe_allow_html=True
+                    )
+
+            slot += 1
+
 
 if st.session_state.selected_plot:
     if not os.path.exists(st.session_state.selected_plot):
@@ -1021,7 +819,7 @@ if st.session_state.selected_plot:
                 st.subheader("Selected Data")
         
         with col_hide:
-            if st.button("Hide Plot", key="hide_plot", use_container_width=True):
+            if st.button("Hide Plot", key="hide_plot"):
                 st.session_state.selected_plot = None
                 st.session_state.selected_gain = None
                 st.rerun()
@@ -1043,7 +841,7 @@ if st.session_state.selected_plot:
                 <div style="position: relative; width: 100%;">
                     <img src="data:image/png;base64,{base_img}" style="width: 100%; display: block;">
                     <img src="data:image/png;base64,{overlay_img}" 
-                         style="position: absolute; top: 0; left: 0; width: 100%;">
+                         style="position: absolute; top: 0; left: 0; width: 100%; opacity: 0.5;">
                 </div>
             """, unsafe_allow_html=True)
             
@@ -1057,6 +855,186 @@ if st.session_state.selected_plot:
         
         if st.session_state.selected_gain:
             st.info(st.session_state.selected_gain)
+
+with left_col:
+    st.subheader("STEP 4: Enter Serial Number")
+
+    if "serial_number" not in st.session_state:
+        st.session_state.serial_number = ""
+
+    serial_number_input = st.text_input(
+        "Enter PMT Serial Number:",
+        value=st.session_state.serial_number,
+        placeholder="e.g., SN12345",
+        help="This serial number will be used to locate the correct data files on the server",
+        key="sn_input"
+    )
+
+    st.session_state.serial_number = serial_number_input
+
+    if st.session_state.serial_number.strip():
+        st.success(f"✓ Serial Number set: {st.session_state.serial_number}")
+    else:
+        st.warning("⚠️ Please enter a serial number before starting auto-execute")
+
+    st.divider()
+
+    with stylable_container(
+        "orange_button",
+        css_styles="""
+        button {
+            background-color: #228B22;
+            color: white;
+            border-color: #228B22;
+            height: 80px;
+            font-size: 18px;
+            font-weight: bold;
+            white-space: pre-line;
+            line-height: 1.3;
+        }
+        button:hover {
+            border-color: #0066cc;
+            opacity: 0.9;
+        }
+        """,
+    ):
+        button_disabled = is_running or not executor_alive or not st.session_state.serial_number.strip()
+        
+        if st.button("STEP 5: RUN LIVE MONITORING\nStart Auto-Execute (21 runs)", 
+                     type="primary", 
+                     use_container_width=True,
+                     disabled=button_disabled, 
+                     key="start_auto"):
+            # First, archive existing data on server
+            st.info("Archiving existing data on server before starting...")
+            success, message = archive_data_on_server(
+                st.session_state.remote_host,
+                st.session_state.remote_directory,
+                st.session_state.archive_directory
+            )
+            
+            if success:
+                st.success(f"✅ {message}")
+            else:
+                st.warning(f"⚠️ Archive warning: {message}")
+            
+            # Then start auto-execute
+            config = {
+                'running': True,
+                'remote_host': st.session_state.remote_host,
+                'remote_directory': st.session_state.remote_directory,
+                'remote_command': st.session_state.remote_command,
+                'serial_number': st.session_state.serial_number,  # Add serial number to config
+                'total_runs': 21,
+                'interval_seconds': 7
+            }
+            save_config(config)
+            st.success("Auto-execute started!")
+            time.sleep(2)
+            st.rerun()
+
+    st.caption(
+        "This will first archive any existing data on the server, then automatically process data on the server and sync with that data."
+    )
+
+    with stylable_container(
+        "orange_button_stop",
+        css_styles="""
+        button {
+            background-color: #ff8c00;
+            color: white;
+            border-color: #ff8c00;
+            height: 60px;
+            font-size: 16px;
+            font-weight: bold;
+        }
+        button:hover {
+            border-color: #0066cc;
+            opacity: 0.9;
+        }
+        """,
+    ):
+        if st.button("Stop Auto-Execute", type="primary", use_container_width=True, disabled=not is_running, key="stop_auto"):
+
+            # Stop auto-execute locally
+            if os.path.exists(CONFIG_FILE):
+                config = load_status()
+                if config:
+                    config["running"] = False
+                    save_config(config)
+
+            if os.path.exists(STATUS_FILE):
+                status = load_status()
+                if status:
+                    status["running"] = False
+                    status["message"] = "Stopped by user"
+                    with open(STATUS_FILE, "w") as f:
+                        json.dump(status, f, indent=2)
+
+            # Cancel SLURM jobs
+            try:
+                cancel_cmd = f"ssh {st.session_state.remote_host} scancel -u earles"
+                subprocess.run(
+                    cancel_cmd,
+                    shell=True,
+                    check=True,
+                    timeout=15
+                )
+                st.success("Auto-execute stopped and SLURM jobs cancelled")
+
+            except subprocess.CalledProcessError as e:
+                st.warning("Auto-execute stopped, but scancel failed")
+
+            time.sleep(1)
+            st.rerun()
+    st.divider()
+    
+    if st.button("Execute on Server Once", type="secondary", disabled=is_running or not executor_alive):
+        st.info("Executing command on Server...")
+        
+        ssh_command = (
+            f"ssh {st.session_state.remote_host} "
+            f"'cd {st.session_state.remote_directory} && {st.session_state.remote_command}'"
+        )
+        
+        try:
+            result = subprocess.run(
+                ssh_command,
+                shell=True,
+                capture_output=True,
+                text=True,
+                timeout=120
+            )
+            
+            if result.returncode == 0:
+                st.success("Command executed successfully!")
+            else:
+                st.warning("Command completed with errors")
+            
+            if result.stdout:
+                st.code(result.stdout, language="bash")
+                
+        except subprocess.TimeoutExpired:
+            st.error("❌ Command timed out")
+        except Exception as e:
+            st.error(f"❌ Error: {str(e)}")
+
+    if is_running:
+        st.info("Auto-refreshing every 5 seconds!")
+        if st.button("Refresh Now"):
+            st.rerun()
+
+    if st.button("Manual Sync", type="secondary"):
+        st.info("Syncing from server...")
+        
+        sn = st.session_state.serial_number if st.session_state.serial_number.strip() else None
+        success, msg = sync_from_spartan(st.session_state.remote_host, st.session_state.remote_directory, serial_number=sn)
+        
+        if success:
+            st.success(f"✅ {msg}")
+        else:
+            st.warning(f"⚠️ {msg}")
+
 
 st.divider()
 
