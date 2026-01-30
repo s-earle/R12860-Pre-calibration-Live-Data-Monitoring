@@ -374,7 +374,7 @@ if "remote_directory" not in st.session_state:
     st.session_state.remote_directory = "/data/gpfs/projects/punim1378/earles/Precal_GUI"
 
 if "remote_command" not in st.session_state:
-    st.session_state.remote_command = "sbatch ./RUN_LIVE_MONITORING_ALL_TEST.slurm {SN}" # This is the executing file on server. We can write anyone we want and then insert it here OR change it on the GUI. 
+    st.session_state.remote_command = "sbatch ./RUN_LIVE_MONITORING_ALL_TEST.slurm {SN}" # SERVER BATCH SCRIPT. This is the executing file on server. We can write anyone we want and then insert it here OR change it on the GUI. 
 
 if "archive_directory" not in st.session_state:
     st.session_state.archive_directory = "/data/gpfs/projects/punim1378/earles/Precal_GUI/archive"
@@ -390,8 +390,12 @@ if "selected_plot" not in st.session_state:
 
 if "show_overlay" not in st.session_state:
     st.session_state.show_overlay = False
+
 if "example_plot_path" not in st.session_state:
     st.session_state.example_plot_path = "example_data/GOOD_DATA_charge.png"
+
+if 'submitted_job_ids' not in st.session_state:
+    st.session_state.submitted_job_ids = []
 
 # Automatic cleanup on page load
 cleanup_old_data("synced_data/", st.session_state.cleanup_time_hours)
@@ -926,7 +930,8 @@ with left_col:
                 'remote_command': st.session_state.remote_command,
                 'serial_number': st.session_state.serial_number,  # Add serial number to config
                 'total_runs': 21,
-                'interval_seconds': 7
+                'interval_seconds': 60,
+                'job_ids': []
             }
             save_config(config)
             st.success("Auto-execute started!")

@@ -1,7 +1,7 @@
 {
   "running": false,
-  "completed": 4,
+  "completed": 0,
   "total": 21,
-  "message": "Waiting for data... (4/21)",
-  "last_success": true
+  "message": "Waiting for data... (0/21)",
+  "last_success": false
 }
