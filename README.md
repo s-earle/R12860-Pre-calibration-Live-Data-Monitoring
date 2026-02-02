@@ -6,7 +6,7 @@ How to run and use the live monitoring software:
 
  Open terminal and enter command:
 ```
-streamlit run R12860_LIVE_MONITORING.py
+streamlit run R12860_LIVE_MONITORING.py --server.p0rt 9602
 ```
 A Streamlit window will open in the installed browser, which can be employed as follows:
 
