@@ -89,9 +89,13 @@ def execute_command(remote_host, remote_dir, remote_command, serial_number=None)
             timeout=120
         )
         
-        return result.returncode == 0, result.stdout, result.stderr
+        job_id = None
+        if result.returncode == 0 and "Submitted batch job" in result.stdout:
+            job_id = result.stdout.strip().split()[-1]
+        
+        return result.returncode == 0, result.stdout, result.stderr, job_id  # Added job_id
     except Exception as e:
-        return False, "", str(e)
+        return False, "", str(e), None  # Added None for job_id
 
 def count_data_points(local_dir="synced_data/"):
     """Count how many data points have been synced"""
@@ -142,7 +146,7 @@ def main():
                 
                 # Execute the SLURM job ONCE - it will handle all 21 points
                 print("  Submitting SLURM job...")
-                exec_success, stdout, stderr = execute_command(
+                exec_success, stdout, stderr, job_id = execute_command(
                     config['remote_host'],
                     config['remote_directory'],
                     config['remote_command'],
@@ -150,11 +154,19 @@ def main():
                 )
                 
                 if exec_success:
-                    print(f"  ✓ SLURM job submitted successfully")
+                    print(f"SLURM job submitted successfully")
                     if stdout:
                         print(f"  Job ID: {stdout.strip()}")
+
+                    if job_id:
+                        config['job_ids'] = config.get('job_ids', [])
+                        config['job_ids'].append(job_id)
+                        with open(CONFIG_FILE, 'w') as f:
+                            json.dump(config, f, indent=2)
+                        print(f"  Saved job ID: {job_id}")
+                        
                 else:
-                    print(f"  ✗ SLURM job submission failed")
+                    print(f"SLURM job submission FAILED")
                     if stderr:
                         print(f"  Error: {stderr[:200]}")
                 

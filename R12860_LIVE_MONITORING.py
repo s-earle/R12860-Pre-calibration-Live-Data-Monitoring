@@ -1,13 +1,14 @@
+import sys
+import os
+
 import streamlit as st
 from streamlit_autorefresh import st_autorefresh
 from streamlit_extras.stylable_container import stylable_container
 import subprocess
-import os
 import time
 import json
 import threading
 import signal
-import sys
 import re
 import glob
 from PIL import Image
@@ -374,7 +375,7 @@ if "remote_directory" not in st.session_state:
     st.session_state.remote_directory = "/data/gpfs/projects/punim1378/earles/Precal_GUI"
 
 if "remote_command" not in st.session_state:
-    st.session_state.remote_command = "sbatch ./RUN_LIVE_MONITORING_ALL_TEST.slurm {SN}" # This is the executing file on server. We can write anyone we want and then insert it here OR change it on the GUI. 
+    st.session_state.remote_command = "sbatch ./RUN_LIVE_MONITORING_ALL_TEST.slurm {SN}" # SERVER BATCH SCRIPT. This is the executing file on server. We can write anyone we want and then insert it here OR change it on the GUI. 
 
 if "archive_directory" not in st.session_state:
     st.session_state.archive_directory = "/data/gpfs/projects/punim1378/earles/Precal_GUI/archive"
@@ -390,8 +391,12 @@ if "selected_plot" not in st.session_state:
 
 if "show_overlay" not in st.session_state:
     st.session_state.show_overlay = False
+
 if "example_plot_path" not in st.session_state:
     st.session_state.example_plot_path = "example_data/GOOD_DATA_charge.png"
+
+if 'submitted_job_ids' not in st.session_state:
+    st.session_state.submitted_job_ids = []
 
 # Automatic cleanup on page load
 cleanup_old_data("synced_data/", st.session_state.cleanup_time_hours)
@@ -556,7 +561,7 @@ with right_col:
     
     st.caption("Shows recent scan results. Data will lag slightly behind acquisition.")
 
-    def get_color_from_gain(gain_file_path, normal_range=(0.5e7, 1.5e7)):
+    def get_color_from_gain(gain_file_path, normal_range=(0.999e7, 1.049e7)):
         """
         Determine color based on gain value
         Returns: 'green' for healthy, 'red' for poor, 'yellow' for no data
@@ -847,11 +852,17 @@ if st.session_state.selected_plot:
             
             st.caption(f"{os.path.basename(st.session_state.selected_plot)} + Reference Overlay")
         else:
-            st.image(
-                st.session_state.selected_plot,
-                use_container_width=True,
-                caption=os.path.basename(st.session_state.selected_plot)
-            )
+            import base64
+            with open(st.session_state.selected_plot, "rb") as f:
+                img_data = base64.b64encode(f.read()).decode()
+            
+            st.markdown(f"""
+                <div style="width: 100%;">
+                    <img src="data:image/png;base64,{img_data}" style="width: 100%; display: block;">
+                </div>
+            """, unsafe_allow_html=True)
+            
+            st.caption(os.path.basename(st.session_state.selected_plot))
         
         if st.session_state.selected_gain:
             st.info(st.session_state.selected_gain)
@@ -926,7 +937,8 @@ with left_col:
                 'remote_command': st.session_state.remote_command,
                 'serial_number': st.session_state.serial_number,  # Add serial number to config
                 'total_runs': 21,
-                'interval_seconds': 7
+                'interval_seconds': 10,   #### syncing interval
+                'job_ids': []
             }
             save_config(config)
             st.success("Auto-execute started!")
