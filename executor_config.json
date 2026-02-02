@@ -1,7 +1,12 @@
 {
   "running": false,
-  "completed": 0,
-  "total": 21,
-  "message": "Waiting for data... (0/21)",
-  "last_success": false
+  "remote_host": "earles@spartan.hpc.unimelb.edu.au",
+  "remote_directory": "/data/gpfs/projects/punim1378/earles/Precal_GUI",
+  "remote_command": "sbatch ./demo_0226.slurm {SN}",
+  "serial_number": "PMT1",
+  "total_runs": 21,
+  "interval_seconds": 10,
+  "job_ids": [
+    "21292816"
+  ]
 }

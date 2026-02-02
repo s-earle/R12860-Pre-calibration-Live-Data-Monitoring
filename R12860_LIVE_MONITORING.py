@@ -1,13 +1,14 @@
+import sys
+import os
+
 import streamlit as st
 from streamlit_autorefresh import st_autorefresh
 from streamlit_extras.stylable_container import stylable_container
 import subprocess
-import os
 import time
 import json
 import threading
 import signal
-import sys
 import re
 import glob
 from PIL import Image
@@ -560,7 +561,7 @@ with right_col:
     
     st.caption("Shows recent scan results. Data will lag slightly behind acquisition.")
 
-    def get_color_from_gain(gain_file_path, normal_range=(0.5e7, 1.5e7)):
+    def get_color_from_gain(gain_file_path, normal_range=(0.999e7, 1.049e7)):
         """
         Determine color based on gain value
         Returns: 'green' for healthy, 'red' for poor, 'yellow' for no data
@@ -851,11 +852,17 @@ if st.session_state.selected_plot:
             
             st.caption(f"{os.path.basename(st.session_state.selected_plot)} + Reference Overlay")
         else:
-            st.image(
-                st.session_state.selected_plot,
-                use_container_width=True,
-                caption=os.path.basename(st.session_state.selected_plot)
-            )
+            import base64
+            with open(st.session_state.selected_plot, "rb") as f:
+                img_data = base64.b64encode(f.read()).decode()
+            
+            st.markdown(f"""
+                <div style="width: 100%;">
+                    <img src="data:image/png;base64,{img_data}" style="width: 100%; display: block;">
+                </div>
+            """, unsafe_allow_html=True)
+            
+            st.caption(os.path.basename(st.session_state.selected_plot))
         
         if st.session_state.selected_gain:
             st.info(st.session_state.selected_gain)
@@ -930,7 +937,7 @@ with left_col:
                 'remote_command': st.session_state.remote_command,
                 'serial_number': st.session_state.serial_number,  # Add serial number to config
                 'total_runs': 21,
-                'interval_seconds': 60,
+                'interval_seconds': 10,   #### syncing interval
                 'job_ids': []
             }
             save_config(config)
