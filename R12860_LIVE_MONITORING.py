@@ -937,7 +937,7 @@ with left_col:
                 'remote_command': st.session_state.remote_command,
                 'serial_number': st.session_state.serial_number,  # Add serial number to config
                 'total_runs': 21,
-                'interval_seconds': 10,   #### syncing interval
+                'interval_seconds': 5,   #### syncing interval
                 'job_ids': []
             }
             save_config(config)
