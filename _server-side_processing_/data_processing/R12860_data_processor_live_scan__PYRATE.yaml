@@ -1,0 +1,184 @@
+# Object duplication lists
+
+# *-----------------------------------------------------------*
+# | Pyrate config template for R12860 scanning                |
+# *-----------------------------------------------------------*
+# | The following placeholder variables will be filled in by  |
+# | the bacth submission script:                              |
+# |                                                           |
+# | <CHANNELS> : Channel numbers are populated by X in the    |
+# |              waveformX*.txt waveform outputs              |
+# |                                                           |
+# | <PMT_CHANNEL> : Is populated by either 2 or 3, whichever  |
+# |                 PMT channel is used                       |
+# |                                                           |
+# | <run_path> : Fills from the directory where waveform.txt  |
+# |              files are written to - SN and datetime       |
+# |              dependent                                    |
+# |                                                           |
+# | <out_name> : Populated by the output directory and name - |
+# |              determined from SN and datetime              |
+# *-----------------------------------------------------------*
+
+# !!!  Currently operates on the { performance_testing } branch only !!!
+<channels>: [<CHANNELS>]
+# [<CHANNELS>] : [0, 1, 2, 3, 4] = [sig_gen, SiPM, PMT1, PMT2, ref_PMT]
+#<SN>: ['Laser', 'KQ0146']
+
+InputName:
+    type: input
+    algorithm: EventBuilder
+    parallel: True
+    ch0:
+        reader: ReaderWaveDump
+        files:
+            - <run_path>/wave0*.txt
+
+    ch1:
+        reader: ReaderWaveDump
+        files:
+            - <run_path>/wave1*.txt
+
+    ch<PMT_CHANNEL>:
+        reader: ReaderWaveDump
+        files:
+            - <run_path>/wave<PMT_CHANNEL>*.txt
+        
+
+    # ch4:
+    #     reader: ReaderWaveDump
+    #     files:
+    #         - <run_path>/wave4*.txt
+        
+        
+# -----------------------------------------------------------
+# Objects computed by algorithms
+# -----------------------------------------------------------
+
+# -----------------------------------------------------------
+# Variables
+# -----------------------------------------------------------
+
+############################## WAVEFORMS AND BASELINE #################################
+
+Baseline_CH<channels>:
+    algorithm: Baseline
+    samples: 40
+    input:
+        waveform: ch<channels>.waveform
+    output:
+        baseline: Baseline_CH<channels>
+        stddev: BaselineStdDev_CH<channels>
+        delta: BaselineDelta_CH<channels>
+
+CorrectedWaveform_CH0:
+    algorithm: CorrectedWaveform
+    vpp: 2.0
+    adcrange: 16384
+    polarity: pos
+    units: mV
+    input:
+        waveform: ch0.waveform
+        baseline: Baseline_CH0
+
+CorrectedWaveform_CH1:
+    algorithm: CorrectedWaveform
+    vpp: 2.0
+    adcrange: 16384
+    polarity: pos
+    units: mV
+    input:
+        waveform: ch1.waveform
+        baseline: Baseline_CH1
+
+CorrectedWaveform_CH<PMT_CHANNEL>:
+    algorithm: CorrectedWaveform
+    vpp: 2.0
+    adcrange: 16384
+    polarity: neg
+    units: mV
+    input:
+        waveform: ch<PMT_CHANNEL>.waveform
+        baseline: Baseline_CH<PMT_CHANNEL>
+
+############################## WINDOWS #################################
+
+PulseRangeStop_CH<channels>:
+    algorithm: Calculator
+    equation: PulseStart_CH<channels> + 50
+
+PulseRangeStart_CH<channels>:
+    algorithm: Calculator
+    equation: PulseStart_CH<channels> - 10
+
+PromptRangeStart_CH<channels>:
+    algorithm: Calculator
+    equation: PeakLocation_CH<channels> -10 
+
+DelayedRangeStop_CH<channels>:
+    algorithm: Calculator
+    equation: A + 20
+    input: PeakLocation_CH<channels> + 20 
+
+LasTrigRangeStop:
+    algorithm: Calculator
+    equation: PeakLocation_CH1 + 161 # This is determined based off the time difference b/w PMT and laser pickoff + 3*transittime
+
+############################## VARIABLES #################################
+
+ChargeConstant:
+    algorithm: ChargeConstant
+    impedance: 50
+    rate: 500e6
+    unit: pC
+    waveform_unit: mV
+
+PulseCharge_CH<channels>:
+    algorithm: Charge
+    impedance: 50
+    rate: 500e6
+    unit: pC
+    waveform_unit: mV
+    input:
+        waveform: CorrectedWaveform_CH<channels>
+        start: PulseRangeStart_CH<channels>
+        stop: PulseRangeStop_CH<channels>
+
+
+PulseStart_CH0:
+    algorithm: LeadingEdgeDiscriminator
+    offset: 0
+    threshold: 100
+    input:
+        waveform: CorrectedWaveform_CH0
+
+PulseStart_CH1:
+    algorithm: LeadingEdgeDiscriminator
+    offset: 0
+    threshold: 100
+    input:
+        waveform: CorrectedWaveform_CH1
+
+PulseStart_CH<PMT_CHANNEL>:
+    algorithm: LeadingEdgeDiscriminator
+    offset: 0
+    threshold: 3
+    input:
+        waveform: CorrectedWaveform_CH<PMT_CHANNEL>
+
+# ----------------------------------------------------------*
+# | Trees                                                   |
+# ----------------------------------------------------------*
+
+Tree_CH<channels>:
+    algorithm: TreeMaker
+    compression: lz4 # mariginal
+    compression_level: 1 # fastest
+    file: <out_name>.root
+    #  /data/gpfs/projects/punim1378/earles/WaveDumpSaves/wavedump_output_251006_112911/PMT1/wavesave_theta0_phi0/new_wavesave_theta0_phi0.root
+    #  /data/projects/punim0011/wihann/Deployment/data/rootfiles/250821_093254_ped/<run_name>.root
+    type: output
+    input:
+        float:
+            -   {PulseStart: PulseStart_CH<channels>, PulseCharge: PulseCharge_CH<channels>}
+
