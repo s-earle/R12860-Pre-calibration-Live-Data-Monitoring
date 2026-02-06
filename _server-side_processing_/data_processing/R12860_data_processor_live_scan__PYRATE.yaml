@@ -43,12 +43,11 @@ InputName:
         reader: ReaderWaveDump
         files:
             - <run_path>/wave<PMT_CHANNEL>*.txt
-        
 
-    # ch4:
-    #     reader: ReaderWaveDump
-    #     files:
-    #         - <run_path>/wave4*.txt
+    ch4:
+        reader: ReaderWaveDump
+        files:
+            - <run_path>/wave4*.txt
         
         
 # -----------------------------------------------------------
@@ -100,6 +99,16 @@ CorrectedWaveform_CH<PMT_CHANNEL>:
     input:
         waveform: ch<PMT_CHANNEL>.waveform
         baseline: Baseline_CH<PMT_CHANNEL>
+
+CorrectedWaveform_CH4:
+    algorithm: CorrectedWaveform
+    vpp: 2.0
+    adcrange: 16384
+    polarity: neg
+    units: mV
+    input:
+        waveform: ch4.waveform
+        baseline: Baseline_CH4
 
 ############################## WINDOWS #################################
 
@@ -165,6 +174,13 @@ PulseStart_CH<PMT_CHANNEL>:
     threshold: 3
     input:
         waveform: CorrectedWaveform_CH<PMT_CHANNEL>
+
+PulseStart_CH4:
+    algorithm: LeadingEdgeDiscriminator
+    offset: 0
+    threshold: 5
+    input:
+        waveform: CorrectedWaveform_CH4
 
 # ----------------------------------------------------------*
 # | Trees                                                   |
