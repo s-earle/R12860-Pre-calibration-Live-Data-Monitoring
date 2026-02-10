@@ -2,7 +2,7 @@
 GUI that shows current data quality
 
 ## Quick start Instructions:
-How to run and use the live monitoring software:
+How to run and use the live monitoring software (if it is already installed and set-up on the server):
 
  Open terminal and enter command:
 ```
@@ -20,6 +20,23 @@ A Streamlit window will open in the installed browser, which can be employed as 
 
 ## Set-up Instructions
 If a new user is configuring the local machine and server for the first time, they must first set-up a ssh-key for the local machine for the server user login that will be used. Github guide is [here](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/generating-a-new-ssh-key-and-adding-it-to-the-ssh-agent).
+
+On the local machine open terminal and execute:
+```
+git clone https://github.com/s-earle/R12860-Pre-calibration-Live-Data-Monitoring/edit/main/README.md
+```
+Streamlit will need to be installed:
+```
+pip install streamlit
+
+pip install streamlit-autorefresh
+
+pip install streamlit-extras
+```
+Now to run the GUI:
+```
+streamlit run R12860_LIVE_MONITORING.py --server.port 9602
+```
 
 
 # Server-side:
@@ -55,16 +72,6 @@ git clone https://github.com/s-earle/R12860-Pre-calibration-Live-Data-Monitoring
 ```
 
 
-**Requirements:**
-Streamlit and some of its extensions will need to be installed via terminal 
-```
-pip install streamlit
-
-pip install streamlit-autorefresh
-
-pip install streamlit-extras
-```
-PMT Serial Number
 
 ## Workflow
 The Live Monitoring GUI sends a job to be executed on a server cluster. This job runs an algorithm to process data quickly and sends data back to the GUI operator. This is to ensure no faults have occurred during data acquisition. The GUI syncronises with the server cluster, receiving a charge distribution plot and a measured value of gain of the PMT. This data is then loaded into the data grid and indicates to the operator whether the gain is within an appropriate operating range or not. 
