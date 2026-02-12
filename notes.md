@@ -21,10 +21,11 @@ As of 20260116:
 User enters SN and HV_NOMINAL value 
 |
 |-- GUI outputs:
-    |-- NOMINAL+50
-    |-- NOMINAL-50
-    |-- NOMINAL+100   
     |-- NOMINAL-100
+    |-- NOMINAL-50
+    |-- NOMINAL 
+    |-- NOMINAL+50
+    |-- NOMINAL+100   
 |-- These values populate the server commands: 
     i.e.
     ```
@@ -34,38 +35,47 @@ User enters SN and HV_NOMINAL value
 |-- User will then need to change the HV to those values on Han's GUI and that will output waveform files:    
 
 ```
+    /WaveDumpSaves/wavedump_output_{datetime}/{SN}/wavesave_HV_CHECK/wave{ch_no}save_HV_{HV_NOMINAL-100}.txt
+    /WaveDumpSaves/wavedump_output_{datetime}/{SN}/wavesave_HV_CHECK/wave{ch_no}save_HV_{HV_NOMINAL-050}.txt
     /WaveDumpSaves/wavedump_output_{datetime}/{SN}/wavesave_HV_CHECK/wave{ch_no}save_HV_{HV_NOMINAL+000}.txt
     /WaveDumpSaves/wavedump_output_{datetime}/{SN}/wavesave_HV_CHECK/wave{ch_no}save_HV_{HV_NOMINAL+050}.txt
-    /WaveDumpSaves/wavedump_output_{datetime}/{SN}/wavesave_HV_CHECK/wave{ch_no}save_HV_{HV_NOMINAL-050}.txt
     /WaveDumpSaves/wavedump_output_{datetime}/{SN}/wavesave_HV_CHECK/wave{ch_no}save_HV_{HV_NOMINAL+100}.txt
-    /WaveDumpSaves/wavedump_output_{datetime}/{SN}/wavesave_HV_CHECK/wave{ch_no}save_HV_{HV_NOMINAL-100}.txt
     
 ```
 
 *-------------------------------------------------------------------*
 | On server:                                                        |
+
 | The batch job command will utilise the automatically input values |
+
 | to:                                                               |
+
 | 1. Generate yaml configs                                          |
+
 | 2. Run through Pyrate to produce ROOT                             |
+
 | 3. Python script will extract charge distributions and fit to SPE |
+
 | 4. Mean from SPE utilised to determine Gain estimate              |
+
 | 5. Plot of voltage dependent gain produced, with estimate of      |
+
 |    optimum HV value for 1x10^7 gain (HV value output in txt)      |
+
 | 6. Best HV value and gain vs V plot synced back to GUI            |
+
 *-------------------------------------------------------------------*
 
 GUI then displays:
     Gain vs Voltage plot
-
     G ^
     A |
     I |              *
     N |           *
-     1^7-------* 
+    1^7-------* 
       |     * |
       |  *    |
       |_______|___________>
               |    VOLTAGE
-           optimum HV 
+        optimum HV 
     Optimum HV value for a gain of 1.00x10^7
