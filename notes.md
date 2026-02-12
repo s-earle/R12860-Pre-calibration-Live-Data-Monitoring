@@ -62,10 +62,10 @@ GUI then displays:
     A |
     I |              *
     N |           *
-      |        * 
-      |     * 
-      |  *
-      |___________________>
-                  VOLTAGE
-
+1x10^7| -------* 
+      |     * |
+      |  *    |
+      |_______|___________>
+              |    VOLTAGE
+           optimum HV 
     Optimum HV value for a gain of 1.00x10^7
