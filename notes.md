@@ -58,14 +58,16 @@ to:
 
 GUI then displays:
     Gain vs Voltage plot
+    
     G ^
     A |
     I |              *
     N |           *
-    1^7-------* 
+     1^7-------* 
       |     * |
       |  *    |
       |_______|___________>
               |    VOLTAGE
         optimum HV 
-    Optimum HV value for a gain of 1.00x10^7
+
+   Optimum HV value for a gain of 1.00x10^7
