@@ -44,26 +44,16 @@ User enters SN and HV_NOMINAL value
 ```
 
 *-------------------------------------------------------------------*
-| On server:                                                        |
-
-| The batch job command will utilise the automatically input values |
-
-| to:                                                               |
-
-| 1. Generate yaml configs                                          |
-
-| 2. Run through Pyrate to produce ROOT                             |
-
-| 3. Python script will extract charge distributions and fit to SPE |
-
-| 4. Mean from SPE utilised to determine Gain estimate              |
-
-| 5. Plot of voltage dependent gain produced, with estimate of      |
-
-|    optimum HV value for 1x10^7 gain (HV value output in txt)      |
-
-| 6. Best HV value and gain vs V plot synced back to GUI            |
-
+On server:
+The batch job command will utilise the automatically input 
+to:
+1. Generate yaml configs
+2. Run through Pyrate to produce ROOT
+3. Python script will extract charge distributions and fit to 
+4. Mean from SPE utilised to determine Gain estimate
+5. Plot of voltage dependent gain produced, with estimate of
+   optimum HV value for 1x10^7 gain (HV value output in txt)
+6. Best HV value and gain vs V plot synced back to GUI
 *-------------------------------------------------------------------*
 
 GUI then displays:
