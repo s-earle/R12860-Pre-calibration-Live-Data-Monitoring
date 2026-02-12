@@ -537,153 +537,6 @@ with tab1:
 
     left_col_tab1, right_col_tab1 = st.columns([1, 1.5])
 
-    with right_col_tab1:
-        st.subheader("Recent Scan Data (5 Points)")
-        st.caption("Shows recent scan results for HV check mode.")
-
-        hv_offset_mapping = {
-            0: -100,      
-            1: -50,     
-            2: 0,    # Nominal value
-            3: +50,   
-            4: +100   
-        }
-
-        def get_hv_label(hv_slot, nominal_hv):
-            """Convert HV slot to voltage label"""
-            offset = hv_offset_mapping[hv_slot]
-            if offset == 0:
-                return f"Nominal ({nominal_hv}V)"
-            else:
-                actual_hv = nominal_hv + offset
-                sign = "+" if offset > 0 else ""
-                return f"{sign}{offset}V ({actual_hv}V)"
-
-        # Parse nominal HV value from session state
-        try:
-            nominal_hv = int(st.session_state.hv_value.replace('V', '').replace('v', '').strip()) if st.session_state.hv_value else 1500
-        except:
-            nominal_hv = 1500
-
-        # First row - single [0,0] button centered
-        col1, col2, col3 = st.columns([1, 2, 1])
-        with col2:
-            hv_slot = 0
-            theta, phi = hv_offset_mapping[hv_slot]
-            coord_label = get_hv_label(hv_slot)
-            
-            png_file, gain_file = find_files_by_theta_phi("synced_data", theta, phi)
-            
-            if png_file:
-                gain_value = get_gain_value_from_file(gain_file)
-                color = get_color_from_gain(gain_file)
-                status_text = {
-                    'green': 'Healthy',
-                    'yellow': 'No Data',
-                    'red': 'Poor'
-                }.get(color, 'No Data')
-                
-                st.markdown(
-                    f"""
-                    <div class="grid-button-{color}">
-                        <div>{status_text}</div>
-                        <div class="gain-label">{gain_value}</div>
-                        <div class="coordinate-label">{coord_label}</div>
-                    </div>
-                    """,
-                    unsafe_allow_html=True
-                )
-                
-                if st.button("View", key=f"view_hv_{hv_slot}", use_container_width=True):
-                    st.session_state.selected_plot = png_file
-                    st.session_state.selected_gain = gain_value
-            else:
-                st.markdown(
-                    f"""
-                    <div class="no-data-box">
-                        <div>⚠ No Data</div>
-                        <div class="coordinate-label">{coord_label}</div>
-                    </div>
-                    """,
-                    unsafe_allow_html=True
-                )
-
-        # Second row - 4 cardinal points
-        cols = st.columns(4)
-        for i, hv_slot in enumerate([1, 2, 3, 4]):
-            with cols[i]:
-                theta, phi = hv_offset_mapping[hv_slot]
-                coord_label = get_hv_label(hv_slot)
-                
-                png_file, gain_file = find_files_by_theta_phi("synced_data", theta, phi)
-                
-                if png_file:
-                    gain_value = get_gain_value_from_file(gain_file)
-                    color = get_color_from_gain(gain_file)
-                    status_text = {
-                        'green': 'Healthy',
-                        'yellow': 'No Data',
-                        'red': 'Poor'
-                    }.get(color, 'No Data')
-                    
-                    st.markdown(
-                        f"""
-                        <div class="grid-button-{color}">
-                            <div>{status_text}</div>
-                            <div class="gain-label">{gain_value}</div>
-                            <div class="coordinate-label">{coord_label}</div>
-                        </div>
-                        """,
-                        unsafe_allow_html=True
-                    )
-                    
-                    if st.button("View", key=f"view_hv_{hv_slot}", use_container_width=True):
-                        st.session_state.selected_plot = png_file
-                        st.session_state.selected_gain = gain_value
-                else:
-                    st.markdown(
-                        f"""
-                        <div class="no-data-box">
-                            <div>⚠ No Data</div>
-                            <div class="coordinate-label">{coord_label}</div>
-                        </div>
-                        """,
-                        unsafe_allow_html=True
-                    )
-
-    if st.session_state.selected_plot:
-        if not os.path.exists(st.session_state.selected_plot):
-            st.session_state.selected_plot = None
-            st.session_state.selected_gain = None
-            st.rerun()
-        else:
-            st.divider()
-            col_plot, col_hide = st.columns([4, 1])
-            
-            with col_plot:
-                st.subheader("Selected Data")
-            
-            with col_hide:
-                if st.button("Hide Plot", key="hide_plot_tab1"):
-                    st.session_state.selected_plot = None
-                    st.session_state.selected_gain = None
-                    st.rerun()
-            
-            import base64
-            with open(st.session_state.selected_plot, "rb") as f:
-                img_data = base64.b64encode(f.read()).decode()
-            
-            st.markdown(f"""
-                <div style="width: 100%;">
-                    <img src="data:image/png;base64,{img_data}" style="width: 100%; display: block;">
-                </div>
-            """, unsafe_allow_html=True)
-            
-            st.caption(os.path.basename(st.session_state.selected_plot))
-            
-            if st.session_state.selected_gain:
-                st.info(st.session_state.selected_gain)
-
     with left_col_tab1:
         st.subheader("Configuration")
 
@@ -705,19 +558,44 @@ with tab1:
 
         # HV Input
         hv_value_input = st.text_input(
-            "Enter HV Value:",
+            "Enter Nominal HV Value:",
             value=st.session_state.hv_value,
-            placeholder="e.g., 1500V",
-            help="High voltage value for this scan",
+            placeholder="e.g., 1500",
+            help="Nominal high voltage value (without 'V'). Scans will be done at ±100V and ±50V from this value.",
             key="hv_input_tab1"
         )
 
         st.session_state.hv_value = hv_value_input
 
-        if st.session_state.hv_value.strip():
-            st.success(f"✓ HV Value set: {st.session_state.hv_value}")
+        # Parse nominal HV and create table
+        try:
+            nominal_hv = int(st.session_state.hv_value.replace('V', '').replace('v', '').strip()) if st.session_state.hv_value else None
+        except:
+            nominal_hv = None
+
+        if nominal_hv:
+            st.success(f"✓ Nominal HV set: {nominal_hv}V")
+            
+            # Create HV values table
+            st.subheader("HV Scan Points")
+            hv_offsets = [-100, -50, 0, 50, 100]
+            hv_values = [nominal_hv + offset for offset in hv_offsets]
+            
+            # Store HV values in session state for use in grid
+            st.session_state.hv_scan_values = hv_values
+            
+            # Create table data
+            import pandas as pd
+            table_data = {
+                "Point": ["Point 1", "Point 2", "Point 3 (Nominal)", "Point 4", "Point 5"],
+                "Offset": ["-100V", "-50V", "0V", "+50V", "+100V"],
+                "HV Value": [f"{hv}V" for hv in hv_values]
+            }
+            df = pd.DataFrame(table_data)
+            st.table(df)
         else:
-            st.warning("⚠️ Please enter an HV value")
+            st.warning("⚠️ Please enter a nominal HV value")
+            st.session_state.hv_scan_values = None
 
         st.divider()
 
@@ -742,7 +620,7 @@ with tab1:
         ):
             button_disabled_tab1 = (is_running or not executor_alive or 
                                    not st.session_state.serial_number.strip() or 
-                                   not st.session_state.hv_value.strip())
+                                   not nominal_hv)
             
             if st.button("RUN HV SCAN\nStart Auto-Execute (5 runs)", 
                          type="primary", 
@@ -768,6 +646,7 @@ with tab1:
                     'remote_command': st.session_state.remote_command,
                     'serial_number': st.session_state.serial_number,
                     'hv_value': st.session_state.hv_value,
+                    'hv_scan_values': st.session_state.hv_scan_values,
                     'total_runs': 5,
                     'interval_seconds': 5,
                     'job_ids': []
@@ -778,7 +657,7 @@ with tab1:
                 st.rerun()
 
         st.caption(
-            "This will run a 5-point HV scan with the specified serial number and HV value."
+            "This will run a 5-point HV scan at the specified voltages."
         )
 
         with stylable_container(
@@ -842,6 +721,184 @@ with tab1:
             else:
                 st.warning(f"⚠️ {msg}")
 
+    with right_col_tab1:
+        st.subheader("Recent Scan Data (5 HV Points)")
+        st.caption("Shows recent scan results for HV check mode at [0,0] position.")
+
+        # Function to find files by HV value
+        def find_files_by_hv(sync_data_dir, serial_number, hv_value):
+            """Find PNG and TXT files for specific HV value"""
+            # Search pattern: Look for files with the HV value in the path/filename
+            # Adjust this pattern based on your actual file naming convention
+            # Example patterns:
+            # Pattern 1: {serial_number}_HV{hv_value}_charge.png
+            # Pattern 2: {serial_number}/HV{hv_value}/data_charge.png
+            
+            pattern = f"{sync_data_dir}/**/*{serial_number}*HV{hv_value}*charge.png"
+            png_files = glob.glob(pattern, recursive=True)
+            
+            if not png_files:
+                # Try alternative pattern without HV in filename
+                pattern = f"{sync_data_dir}/**/{serial_number}/*{hv_value}*charge.png"
+                png_files = glob.glob(pattern, recursive=True)
+            
+            if not png_files:
+                return None, None
+            
+            # Get the most recent file
+            png_file = max(png_files, key=os.path.getmtime)
+            
+            # Replace _charge.png with _GAIN.txt
+            gain_file = png_file.replace('_charge.png', '_GAIN.txt')
+            
+            if not os.path.exists(gain_file):
+                gain_file = None
+            
+            return png_file, gain_file
+
+        # Check if HV values are set
+        if not hasattr(st.session_state, 'hv_scan_values') or st.session_state.hv_scan_values is None:
+            st.info("Enter a nominal HV value to see scan points")
+        else:
+            hv_values = st.session_state.hv_scan_values
+            
+            # HV offset mapping for display
+            hv_offset_mapping = {
+                0: -100,      
+                1: -50,     
+                2: 0,    # Nominal value
+                3: 50,   
+                4: 100   
+            }
+
+            def get_hv_label(hv_slot, hv_values):
+                """Get HV label for slot"""
+                offset = hv_offset_mapping[hv_slot]
+                hv_value = hv_values[hv_slot]
+                if offset == 0:
+                    return f"Nominal ({hv_value}V)"
+                else:
+                    sign = "+" if offset > 0 else ""
+                    return f"{sign}{offset}V ({hv_value}V)"
+
+            # First row - Nominal HV (slot 2, index 2 in hv_values)
+            col1, col2, col3 = st.columns([1, 2, 1])
+            with col2:
+                hv_slot = 2  # Nominal is at index 2
+                hv_label = get_hv_label(hv_slot, hv_values)
+                hv_val = hv_values[hv_slot]
+                
+                png_file, gain_file = find_files_by_hv("synced_data", st.session_state.serial_number, hv_val)
+                
+                if png_file:
+                    gain_value = get_gain_value_from_file(gain_file)
+                    color = get_color_from_gain(gain_file)
+                    status_text = {
+                        'green': 'Healthy',
+                        'yellow': 'No Data',
+                        'red': 'Poor'
+                    }.get(color, 'No Data')
+                    
+                    st.markdown(
+                        f"""
+                        <div class="grid-button-{color}">
+                            <div>{status_text}</div>
+                            <div class="gain-label">{gain_value}</div>
+                            <div class="coordinate-label">{hv_label}</div>
+                        </div>
+                        """,
+                        unsafe_allow_html=True
+                    )
+                    
+                    if st.button("View", key=f"view_hv_{hv_slot}", use_container_width=True):
+                        st.session_state.selected_plot = png_file
+                        st.session_state.selected_gain = gain_value
+                else:
+                    st.markdown(
+                        f"""
+                        <div class="no-data-box">
+                            <div>⚠ No Data</div>
+                            <div class="coordinate-label">{hv_label}</div>
+                        </div>
+                        """,
+                        unsafe_allow_html=True
+                    )
+
+            # Second row - 4 other HV points (indices 0, 1, 3, 4)
+            cols = st.columns(4)
+            for i, hv_slot in enumerate([0, 1, 3, 4]):
+                with cols[i]:
+                    hv_label = get_hv_label(hv_slot, hv_values)
+                    hv_val = hv_values[hv_slot]
+                    
+                    png_file, gain_file = find_files_by_hv("synced_data", st.session_state.serial_number, hv_val)
+                    
+                    if png_file:
+                        gain_value = get_gain_value_from_file(gain_file)
+                        color = get_color_from_gain(gain_file)
+                        status_text = {
+                            'green': 'Healthy',
+                            'yellow': 'No Data',
+                            'red': 'Poor'
+                        }.get(color, 'No Data')
+                        
+                        st.markdown(
+                            f"""
+                            <div class="grid-button-{color}">
+                                <div>{status_text}</div>
+                                <div class="gain-label">{gain_value}</div>
+                                <div class="coordinate-label">{hv_label}</div>
+                            </div>
+                            """,
+                            unsafe_allow_html=True
+                        )
+                        
+                        if st.button("View", key=f"view_hv_{hv_slot}", use_container_width=True):
+                            st.session_state.selected_plot = png_file
+                            st.session_state.selected_gain = gain_value
+                    else:
+                        st.markdown(
+                            f"""
+                            <div class="no-data-box">
+                                <div>⚠ No Data</div>
+                                <div class="coordinate-label">{hv_label}</div>
+                            </div>
+                            """,
+                            unsafe_allow_html=True
+                        )
+
+    if st.session_state.selected_plot:
+        if not os.path.exists(st.session_state.selected_plot):
+            st.session_state.selected_plot = None
+            st.session_state.selected_gain = None
+            st.rerun()
+        else:
+            st.divider()
+            col_plot, col_hide = st.columns([4, 1])
+            
+            with col_plot:
+                st.subheader("Selected Data")
+            
+            with col_hide:
+                if st.button("Hide Plot", key="hide_plot_tab1"):
+                    st.session_state.selected_plot = None
+                    st.session_state.selected_gain = None
+                    st.rerun()
+            
+            import base64
+            with open(st.session_state.selected_plot, "rb") as f:
+                img_data = base64.b64encode(f.read()).decode()
+            
+            st.markdown(f"""
+                <div style="width: 100%;">
+                    <img src="data:image/png;base64,{img_data}" style="width: 100%; display: block;">
+                </div>
+            """, unsafe_allow_html=True)
+            
+            st.caption(os.path.basename(st.session_state.selected_plot))
+            
+            if st.session_state.selected_gain:
+                st.info(st.session_state.selected_gain)
 
 # ============================================================================
 # TAB 2: FULL SCAN (21 points)
