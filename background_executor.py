@@ -137,6 +137,12 @@ def main():
             if config and config.get('running'):
                 print(f"\n[{datetime.now().strftime('%H:%M:%S')}] Starting live monitoring")
                 
+                # Use hv_remote_directory if present, otherwise use remote_directory
+                remote_dir = config.get('hv_remote_directory') or config.get('remote_directory')
+                
+                # Use hv_remote_command if present, otherwise use remote_command
+                remote_command = config.get('hv_remote_command') or config.get('remote_command')
+                
                 save_status({
                     'running': True,
                     'completed': 0,
@@ -144,19 +150,20 @@ def main():
                     'message': 'Starting SLURM job on server'
                 })
                 
-                # Execute the SLURM job ONCE - it will handle all 21 points
-                print("  Submitting SLURM job...")
+                # Execute the SLURM job ONCE - it will handle all points
+                print(f"  Submitting SLURM job to {remote_dir}...")
+                print(f"  Command: {remote_command}")
                 exec_success, stdout, stderr, job_id = execute_command(
                     config['remote_host'],
-                    config['remote_directory'],
-                    config['remote_command'],
+                    remote_dir,
+                    remote_command,  # CHANGED: Use the variable
                     serial_number=config.get('serial_number')
                 )
                 
                 if exec_success:
-                    print(f"SLURM job submitted successfully")
+                    print(f"✓ SLURM job submitted successfully")
                     if stdout:
-                        print(f"  Job ID: {stdout.strip()}")
+                        print(f"  Output: {stdout.strip()}")
 
                     if job_id:
                         config['job_ids'] = config.get('job_ids', [])
@@ -166,9 +173,11 @@ def main():
                         print(f"  Saved job ID: {job_id}")
                         
                 else:
-                    print(f"SLURM job submission FAILED")
+                    print(f"✗ SLURM job submission FAILED")
                     if stderr:
-                        print(f"  Error: {stderr[:200]}")
+                        print(f"  Error: {stderr}")
+                    if stdout:
+                        print(f"  Output: {stdout}")
                 
                 # Monitor for new data points appearing
                 previous_count = 0
@@ -189,11 +198,14 @@ def main():
                         })
                         break
                     
+                    # Use hv_remote_directory if present, otherwise use remote_directory
+                    remote_dir = config.get('hv_remote_directory') or config.get('remote_directory')
+                    
                     # Sync files
-                    print(f"\n[{datetime.now().strftime('%H:%M:%S')}] Syncing...")
+                    print(f"\n[{datetime.now().strftime('%H:%M:%S')}] Syncing from {remote_dir}...")
                     sync_success, sync_msg = sync_from_spartan(
                         config['remote_host'],
-                        config['remote_directory'],
+                        remote_dir,
                         serial_number=config.get('serial_number')
                     )
                     print(f"  {sync_msg}")
@@ -292,6 +304,8 @@ def main():
             break
         except Exception as e:
             print(f"[{datetime.now().strftime('%H:%M:%S')}] Error: {str(e)}")
+            import traceback
+            traceback.print_exc()
             time.sleep(5)
 
 if __name__ == "__main__":

@@ -1,6 +1,7 @@
 {
-  "running": false,
+  "running": true,
   "completed": 0,
-  "total": 0,
-  "message": "Stopped by user - Ready for new commands"
+  "total": 5,
+  "message": "Waiting for data... (0/5)",
+  "last_success": false
 }
