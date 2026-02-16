@@ -1,7 +1,6 @@
 {
-  "running": true,
+  "running": false,
   "completed": 0,
-  "total": 5,
-  "message": "Waiting for data... (0/5)",
-  "last_success": false
+  "total": 0,
+  "message": "Executor ready, waiting for commands"
 }

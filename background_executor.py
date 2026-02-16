@@ -30,16 +30,14 @@ def save_status(status_data):
         json.dump(status_data, f, indent=2)
 
 def sync_from_spartan(remote_host, remote_dir, local_dir="synced_data/", serial_number=None):
-    """Execute rsync command to sync files from scan_output directories"""
+    """Execute rsync command to sync files from scan_output directories AND HV_analysis directories"""
     try:
-        # If serial number provided, sync only that SN's directory from all scan_output dirs
+        # Sync from scan_output directories (existing functionality)
         if serial_number:
             source_path = f"{remote_dir}/scan_output_*/{serial_number}/"
         else:
             source_path = f"{remote_dir}/scan_output_*/"
         
-        # Sync all files from scan_output directories
-        # Updated to match new filenames: *_charge.png and *_GAIN.txt
         rsync_command = (
             f"rsync -avz --include='*/' "
             f"--include='scan_output_*/' "
@@ -57,11 +55,34 @@ def sync_from_spartan(remote_host, remote_dir, local_dir="synced_data/", serial_
             timeout=120
         )
         
-        if result.returncode == 0:
-            sn_msg = f" (SN: {serial_number})" if serial_number else ""
-            return True, f"Synced from scan_output_*{sn_msg}"
+        # ALSO sync HV analysis plots
+        if serial_number:
+            hv_source_path = f"{remote_dir}/HV_analysis_*/{serial_number}/"
         else:
-            return False, f"Rsync failed with code {result.returncode}"
+            hv_source_path = f"{remote_dir}/HV_analysis_*/"
+        
+        rsync_hv_command = (
+            f"rsync -avz --include='*/' "
+            f"--include='HV_analysis_*/' "
+            f"--include='*_gain_vs_hv_loglog.png' "
+            f"--include='*_HV_at_gain_*.txt' "
+            f"--exclude='*' "
+            f"{remote_host}:{hv_source_path} {local_dir}"
+        )
+        
+        result_hv = subprocess.run(
+            rsync_hv_command,
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=120
+        )
+        
+        if result.returncode == 0 or result_hv.returncode == 0:
+            sn_msg = f" (SN: {serial_number})" if serial_number else ""
+            return True, f"Synced from scan_output_* and HV_analysis_*{sn_msg}"
+        else:
+            return False, f"Rsync failed"
         
     except Exception as e:
         return False, f"Sync error: {str(e)}"
