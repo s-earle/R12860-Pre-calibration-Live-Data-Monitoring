@@ -223,13 +223,16 @@ def sync_from_spartan(remote_host, remote_dir, local_dir="synced_data/", serial_
         
         # ALSO sync HV analysis plots
         if serial_number:
-            hv_source_path = f"{remote_dir}/HV_analysis_*/{serial_number}/"
+            hv_source_path = f"{remote_dir}/HV_CHECK/HV_output_*/{serial_number}/"
         else:
-            hv_source_path = f"{remote_dir}/HV_analysis_*/"
+            hv_source_path = f"{remote_dir}/HV_CHECK/HV_output_*/"
         
         rsync_hv_command = (
             f"rsync -avz --include='*/' "
-            f"--include='HV_analysis_*/' "
+            f"--include='HV_output_*/' "
+            f"--include='*/data_HV_*/' "
+            f"--include='*_charge.png' "
+            f"--include='*_GAIN.txt' "
             f"--include='*_gain_vs_hv_loglog.png' "
             f"--include='*_HV_at_gain_*.txt' "
             f"--exclude='*' "
@@ -302,11 +305,13 @@ def find_files_by_theta_phi(sync_data_dir, theta, phi, serial_number=None):
 
 def find_files_by_hv(sync_data_dir, serial_number, hv_value):
     """Find PNG and TXT files for specific HV value"""
-    pattern = f"{sync_data_dir}/**/*{serial_number}*HV{hv_value}*charge.png"
+    # Pattern 1: Try the actual structure first
+    pattern = f"{sync_data_dir}/**/{serial_number}/data_HV_{hv_value}/*_HV_{hv_value}_charge.png"
     png_files = glob.glob(pattern, recursive=True)
     
+    # Pattern 2: Fallback pattern
     if not png_files:
-        pattern = f"{sync_data_dir}/**/{serial_number}/*{hv_value}*charge.png"
+        pattern = f"{sync_data_dir}/**/*{serial_number}*HV_{hv_value}*charge.png"
         png_files = glob.glob(pattern, recursive=True)
     
     if not png_files:
@@ -1105,6 +1110,30 @@ with tab1:
 
         else:
             st.info("Enter a nominal HV value to see scan points")
+        
+        # Display selected plot for PMT 1 if available
+        if st.session_state.selected_plot_pmt1:
+            st.divider()
+            if os.path.exists(st.session_state.selected_plot_pmt1):
+                st.subheader("Selected Plot (PMT 1)")
+                import base64
+                with open(st.session_state.selected_plot_pmt1, "rb") as f:
+                    img_data = base64.b64encode(f.read()).decode()
+                
+                st.markdown(f"""
+                    <div style="width: 100%;">
+                        <img src="data:image/png;base64,{img_data}" style="width: 100%; display: block;">
+                    </div>
+                """, unsafe_allow_html=True)
+                
+                st.caption(os.path.basename(st.session_state.selected_plot_pmt1))
+                if hasattr(st.session_state, 'selected_gain_pmt1'):
+                    st.info(st.session_state.selected_gain_pmt1)
+                
+                if st.button("Hide Plot", key="hide_plot_pmt1_inline", use_container_width=True):
+                    st.session_state.selected_plot_pmt1 = None
+                    st.session_state.selected_gain_pmt1 = None
+                    st.rerun()
     
     st.markdown('</div>', unsafe_allow_html=True)
     
@@ -1362,64 +1391,36 @@ with tab1:
 
         else:
             st.info("Enter a nominal HV value to see scan points")
+        
+        # Display selected plot for PMT 2 if available
+        if st.session_state.selected_plot_pmt2:
+            st.divider()
+            if os.path.exists(st.session_state.selected_plot_pmt2):
+                st.subheader("Selected Plot (PMT 2)")
+                import base64
+                with open(st.session_state.selected_plot_pmt2, "rb") as f:
+                    img_data = base64.b64encode(f.read()).decode()
+                
+                st.markdown(f"""
+                    <div style="width: 100%;">
+                        <img src="data:image/png;base64,{img_data}" style="width: 100%; display: block;">
+                    </div>
+                """, unsafe_allow_html=True)
+                
+                st.caption(os.path.basename(st.session_state.selected_plot_pmt2))
+                if hasattr(st.session_state, 'selected_gain_pmt2'):
+                    st.info(st.session_state.selected_gain_pmt2)
+                
+                if st.button("Hide Plot", key="hide_plot_pmt2_inline", use_container_width=True):
+                    st.session_state.selected_plot_pmt2 = None
+                    st.session_state.selected_gain_pmt2 = None
+                    st.rerun()
     
     st.markdown('</div>', unsafe_allow_html=True)
     
-    # Display selected plots side by side
-    if st.session_state.selected_plot_pmt1 or st.session_state.selected_plot_pmt2:
-        st.divider()
-        st.subheader("Selected Plots")
-        
-        cols = st.columns(2)
-        
-        # PMT 1 plot
-        with cols[0]:
-            if st.session_state.selected_plot_pmt1:
-                if os.path.exists(st.session_state.selected_plot_pmt1):
-                    st.write("🔵 PMT 1")
-                    import base64
-                    with open(st.session_state.selected_plot_pmt1, "rb") as f:
-                        img_data = base64.b64encode(f.read()).decode()
-                    
-                    st.markdown(f"""
-                        <div style="width: 100%;">
-                            <img src="data:image/png;base64,{img_data}" style="width: 100%; display: block;">
-                        </div>
-                    """, unsafe_allow_html=True)
-                    
-                    st.caption(os.path.basename(st.session_state.selected_plot_pmt1))
-                    if hasattr(st.session_state, 'selected_gain_pmt1'):
-                        st.info(st.session_state.selected_gain_pmt1)
-                    
-                    if st.button("Hide Plot (PMT 1)", key="hide_plot_pmt1_tab1"):
-                        st.session_state.selected_plot_pmt1 = None
-                        st.session_state.selected_gain_pmt1 = None
-                        st.rerun()
-        
-        # PMT 2 plot
-        with cols[1]:
-            if st.session_state.selected_plot_pmt2:
-                if os.path.exists(st.session_state.selected_plot_pmt2):
-                    st.write("🟢 PMT 2")
-                    import base64
-                    with open(st.session_state.selected_plot_pmt2, "rb") as f:
-                        img_data = base64.b64encode(f.read()).decode()
-                    
-                    st.markdown(f"""
-                        <div style="width: 100%;">
-                            <img src="data:image/png;base64,{img_data}" style="width: 100%; display: block;">
-                        </div>
-                    """, unsafe_allow_html=True)
-                    
-                    st.caption(os.path.basename(st.session_state.selected_plot_pmt2))
-                    if hasattr(st.session_state, 'selected_gain_pmt2'):
-                        st.info(st.session_state.selected_gain_pmt2)
-                    
-                    if st.button("Hide Plot (PMT 2)", key="hide_plot_pmt2_tab1"):
-                        st.session_state.selected_plot_pmt2 = None
-                        st.session_state.selected_gain_pmt2 = None
-                        st.rerun()
-
+    # Display selected plots side by side (REMOVE THIS ENTIRE SECTION BELOW)
+    
+    
 # ============================================================================
 # TAB 2: FULL SCAN (21 points × 2 PMTs)
 # ============================================================================

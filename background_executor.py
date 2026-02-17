@@ -57,13 +57,16 @@ def sync_from_spartan(remote_host, remote_dir, local_dir="synced_data/", serial_
         
         # ALSO sync HV analysis plots
         if serial_number:
-            hv_source_path = f"{remote_dir}/HV_analysis_*/{serial_number}/"
+            hv_source_path = f"{remote_dir}/HV_CHECK/HV_output_*/{serial_number}/"
         else:
-            hv_source_path = f"{remote_dir}/HV_analysis_*/"
+            hv_source_path = f"{remote_dir}/HV_CHECK/HV_output_*/"
         
         rsync_hv_command = (
             f"rsync -avz --include='*/' "
-            f"--include='HV_analysis_*/' "
+            f"--include='HV_output_*/' "
+            f"--include='*/data_HV_*/' "
+            f"--include='*_charge.png' "
+            f"--include='*_GAIN.txt' "
             f"--include='*_gain_vs_hv_loglog.png' "
             f"--include='*_HV_at_gain_*.txt' "
             f"--exclude='*' "
@@ -80,7 +83,7 @@ def sync_from_spartan(remote_host, remote_dir, local_dir="synced_data/", serial_
         
         if result.returncode == 0 or result_hv.returncode == 0:
             sn_msg = f" (SN: {serial_number})" if serial_number else ""
-            return True, f"Synced from scan_output_* and HV_analysis_*{sn_msg}"
+            return True, f"Synced from scan_output_* and HV_output_*{sn_msg}"
         else:
             return False, f"Rsync failed"
         
