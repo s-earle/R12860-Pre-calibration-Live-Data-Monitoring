@@ -254,20 +254,25 @@ def main():
                         # Check if all data points collected
                         if current_count >= config['total_runs']:
                             print(f"\n[{datetime.now().strftime('%H:%M:%S')}] ✓ All {config['total_runs']} data points collected!")
+                            
+                            # Final sync before marking complete
+                            sync_from_spartan(
+                                config['remote_host'],
+                                remote_dir,
+                                serial_number=config.get('serial_number')
+                            )
+                            
                             save_status({
-                                'running': False,
+                                'running': False,          # <-- this deactivates the buttons
                                 'completed': config['total_runs'],
                                 'total': config['total_runs'],
                                 'message': 'Monitoring complete - All data collected'
                             })
                             
-                            # Mark as not running in config
-                            if config:
-                                config['running'] = False
-                                with open(CONFIG_FILE, 'w') as f:
-                                    json.dump(config, f, indent=2)
+                            config['running'] = False
+                            with open(CONFIG_FILE, 'w') as f:
+                                json.dump(config, f, indent=2)
                             break
-                    else:
                         print(f"  Waiting for new data... ({current_count}/{config['total_runs']} points collected)")
                         wait_cycles += 1
                         

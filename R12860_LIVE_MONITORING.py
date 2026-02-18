@@ -14,6 +14,7 @@ import glob
 from PIL import Image
 import io
 import pandas as pd
+from datetime import datetime
 
 SYNC_DATA_DIR = "synced_data/"
 os.makedirs(SYNC_DATA_DIR, exist_ok=True)
@@ -22,6 +23,47 @@ st.set_page_config(page_title="H-K R12860 Precalibration Live Data Monitoring", 
 
 st.title("H-K R12860 Precalibration Live Data Monitoring")
 
+# ============================================================================
+# GLOBAL SERVER CONFIGURATION (Top of page)
+# ============================================================================
+st.header("Server Configuration")
+st.caption("Configure remote connection settings before starting any scans")
+
+col_srv1, col_srv2 = st.columns(2)
+
+with col_srv1:
+    st.session_state.remote_host = st.text_input(
+        "Remote Host",
+        value=st.session_state.get("remote_host", "user@spartan.hpc.unimelb.edu.au"),
+        key="remote_host_global",
+        help="Format: username@hostname"
+    )
+    # Keep HV host in sync - they're the same server
+    st.session_state.hv_remote_host = st.session_state.remote_host
+
+    st.session_state.remote_directory = st.text_input(
+        "Remote Directory",
+        value=st.session_state.get("remote_directory", "~/Precal_GUI"),
+        key="remote_dir_global"
+    )
+    st.session_state.hv_remote_directory = st.session_state.remote_directory
+
+with col_srv2:
+    st.session_state.archive_directory = st.text_input(
+        "Archive Directory",
+        value=st.session_state.get("archive_directory", "~/Precal_GUI/archive"),
+        key="archive_dir_global"
+    )
+    st.session_state.hv_archive_directory = st.session_state.archive_directory.replace("archive", "HV_CHECK/archive")
+
+    st.session_state.flag_directory = st.text_input(
+        "Flag Directory",
+        value=st.session_state.get("flag_directory", "~/Precal_GUI/FLAG"),
+        key="flag_dir_global"
+    )
+    st.session_state.hv_flag_directory = st.session_state.flag_directory.replace("FLAG", "HV_CHECK/FLAG")
+
+st.divider()
 # ============================================================================
 # GLOBAL PMT CONFIGURATION (Above Tabs)
 # ============================================================================
@@ -193,14 +235,84 @@ def flag_data_on_server(remote_host, remote_dir, flag_dir):
         return False, "Flag operation timed out"
     except Exception as e:
         return False, f"Flag error: {str(e)}"
+    
+def archive_HV_data_on_server(remote_host, remote_dir, archive_dir):
+    """Move plots and text files from remote directory to archive directory"""
+    
+    mkdir_command = f"ssh {remote_host} 'mkdir -p {archive_dir}'"
+    
+    try:
+        subprocess.run(
+            mkdir_command,
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+        
+        
+        move_command = (
+            f"ssh {remote_host} "
+            f"'mv {remote_dir}/HV_CHECK/HV_output* {remote_dir}/*.log {archive_dir}/ 2>/dev/null || true'"
+        )
+        
+        result = subprocess.run(
+            move_command,
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=60
+        )
+        
+        return True, "Files archived successfully"
+        
+    except subprocess.TimeoutExpired:
+        return False, "Archive operation timed out"
+    except Exception as e:
+        return False, f"Archive error: {str(e)}"
 
+def flag_HV_data_on_server(remote_host, remote_dir, flag_dir):
+    """Move plots and text files from remote directory to flagged directory"""
+    mkdir_command = f"ssh {remote_host} 'mkdir -p {flag_dir}'"
+    
+    try:
+        subprocess.run(
+            mkdir_command,
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+        
+        
+        move_command = (
+            f"ssh {remote_host} "
+            f"'mv {remote_dir}/HV_CHECK/HV_output* {remote_dir}/*.log {flag_dir}/ 2>/dev/null || true'"
+        )
+        
+        result = subprocess.run(
+            move_command,
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=60
+        )
+        
+        return True, "Files flagged successfully"
+        
+    except subprocess.TimeoutExpired:
+        return False, "Flag operation timed out"
+    except Exception as e:
+        return False, f"Flag error: {str(e)}"
+
+curr_date = datetime.now().strftime('%Y%m%d')
 
 def sync_from_spartan(remote_host, remote_dir, local_dir="synced_data/", serial_number=None):
     """Execute rsync command to sync files from scan_output directories AND HV_analysis directories"""
     try:
         # Sync from scan_output directories (existing functionality)
         if serial_number:
-            source_path = f"{remote_dir}/scan_output_*/{serial_number}/"
+            source_path = f"{remote_dir}/scan_output_{serial_number}/{curr_date}/"
         else:
             source_path = f"{remote_dir}/scan_output_*/"
         
@@ -465,37 +577,38 @@ def find_hv_value_file(sync_data_dir, serial_number):
     # Return most recent file
     return max(txt_files, key=os.path.getmtime)
 
+# Replace these session_state initializations:
 
-# Initialize session state
 if "remote_host" not in st.session_state:
-    st.session_state.remote_host = "earles@spartan.hpc.unimelb.edu.au"
+    st.session_state.remote_host = "user@spartan.hpc.unimelb.edu.au"  # generic placeholder
 
 if "remote_directory" not in st.session_state:
-    st.session_state.remote_directory = "/data/gpfs/projects/punim1378/earles/Precal_GUI"
+    st.session_state.remote_directory = "~/Precal_GUI"  # relative to home on remote
 
 if "remote_command" not in st.session_state:
     st.session_state.remote_command = "sbatch ./RUN_LIVE_MONITORING_ALL_TEST.slurm {SN}"
 
 if "hv_remote_host" not in st.session_state:
-    st.session_state.hv_remote_host = "earles@spartan.hpc.unimelb.edu.au"
+    st.session_state.hv_remote_host = "user@spartan.hpc.unimelb.edu.au"
 
 if "hv_remote_directory" not in st.session_state:
-    st.session_state.hv_remote_directory = "/data/gpfs/projects/punim1378/earles/Precal_GUI"
+    st.session_state.hv_remote_directory = "~/Precal_GUI"
 
 if "hv_remote_command" not in st.session_state:
     st.session_state.hv_remote_command = "sbatch ./HV_CHECK/RUN_HV_CHECK_TEST.slurm {SN} {HVNOMLL} {HVNOML} {HVNOM} {HVNOMH} {HVNOMHH}"
 
 if "archive_directory" not in st.session_state:
-    st.session_state.archive_directory = "/data/gpfs/projects/punim1378/earles/Precal_GUI/archive"
+    st.session_state.archive_directory = "~/Precal_GUI/archive"
 
 if "flag_directory" not in st.session_state:
-    st.session_state.flag_directory = "/data/gpfs/projects/punim1378/earles/Precal_GUI/FLAG"
+    st.session_state.flag_directory = "~/Precal_GUI/FLAG"
 
 if "hv_archive_directory" not in st.session_state:
-    st.session_state.hv_archive_directory = "/data/gpfs/projects/punim1378/earles/Precal_GUI/HV_CHECK/archive"
+    st.session_state.hv_archive_directory = "~/Precal_GUI/HV_CHECK/archive"
 
 if "hv_flag_directory" not in st.session_state:
-    st.session_state.hv_flag_directory = "/data/gpfs/projects/punim1378/earles/Precal_GUI/HV_CHECK/FLAG"
+    st.session_state.hv_flag_directory = "~/Precal_GUI/HV_CHECK/FLAG"
+
 
 if "cleanup_time_hours" not in st.session_state:
     st.session_state.cleanup_time_hours = 24
@@ -532,9 +645,9 @@ status = load_status()
 is_running = bool(status and status.get('running', False))
 executor_alive = check_executor_running()
 
-# Auto-refresh when background executor is running
-if is_running:
-    st_autorefresh(interval=5000, key="datarefresh")
+# Auto-refresh when running OR when we just finished (status exists but not running)
+if is_running or (status and status.get('completed', 0) > 0 and not is_running):
+    st_autorefresh(interval=5000, key="datarefresh", limit=1 if not is_running else None)
 
 # CSS for grid buttons
 st.markdown("""
@@ -1004,7 +1117,8 @@ with tab1:
                             json.dump(status, f, indent=2)
 
                 try:
-                    cancel_cmd = f"ssh {st.session_state.hv_remote_host} scancel -u earles"
+                    remote_user = st.session_state.hv_remote_host.split("@")[0]
+                    cancel_cmd = f"ssh {st.session_state.hv_remote_host} scancel -u {remote_user}"
                     subprocess.run(
                         cancel_cmd,
                         shell=True,
@@ -1040,7 +1154,7 @@ with tab1:
         with col_arch_pmt1:
             if st.button("📦 Archive Data (PMT 1)", type="secondary", use_container_width=True, key="archive_hv_pmt1"):
                 st.info("Archiving PMT 1 HV data...")
-                success, message = archive_data_on_server(
+                success, message = archive_HV_data_on_server(
                     st.session_state.hv_remote_host,
                     st.session_state.hv_remote_directory,
                     st.session_state.hv_archive_directory
@@ -1054,7 +1168,7 @@ with tab1:
         with col_flag_pmt1:
             if st.button("⚠️ Flag as Abnormal (PMT 1)", type="primary", use_container_width=True, key="flag_hv_pmt1"):
                 st.info("Flagging PMT 1 HV data...")
-                success, message = flag_data_on_server(
+                success, message = flag_HV_data_on_server(
                     st.session_state.hv_remote_host,
                     st.session_state.hv_remote_directory,
                     st.session_state.hv_flag_directory
@@ -1286,7 +1400,8 @@ with tab1:
                             json.dump(status, f, indent=2)
 
                 try:
-                    cancel_cmd = f"ssh {st.session_state.hv_remote_host} scancel -u earles"
+                    remote_user = st.session_state.hv_remote_host.split("@")[0]
+                    cancel_cmd = f"ssh {st.session_state.hv_remote_host} scancel -u {remote_user}"
                     subprocess.run(
                         cancel_cmd,
                         shell=True,
@@ -1682,7 +1797,8 @@ with tab2:
                             json.dump(status, f, indent=2)
 
                 try:
-                    cancel_cmd = f"ssh {st.session_state.remote_host} scancel -u earles"
+                    remote_user = st.session_state.remote_host.split("@")[0]
+                    cancel_cmd = f"ssh {st.session_state.remote_host} scancel -u {remote_user}"
                     subprocess.run(
                         cancel_cmd,
                         shell=True,
@@ -1865,7 +1981,8 @@ with tab2:
                             json.dump(status, f, indent=2)
 
                 try:
-                    cancel_cmd = f"ssh {st.session_state.remote_host} scancel -u earles"
+                    remote_user = st.session_state.remote_host.split("@")[0]
+                    cancel_cmd = f"ssh {st.session_state.remote_host} scancel -u {remote_user}"
                     subprocess.run(
                         cancel_cmd,
                         shell=True,
