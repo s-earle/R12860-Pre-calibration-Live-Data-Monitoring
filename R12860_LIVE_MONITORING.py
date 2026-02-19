@@ -23,6 +23,54 @@ st.set_page_config(page_title="H-K R12860 Precalibration Live Data Monitoring", 
 
 st.title("H-K R12860 Precalibration Live Data Monitoring")
 
+USER_CONFIG_FILE = "user_config.json"
+
+def load_user_config():
+    if os.path.exists(USER_CONFIG_FILE):
+        try:
+            with open(USER_CONFIG_FILE, 'r') as f:
+                return json.load(f)
+        except:
+            return {}
+    return {}
+
+def save_user_config():
+    config = {
+        'remote_host': st.session_state.remote_host,
+        'remote_directory': st.session_state.remote_directory,
+        'hv_remote_directory': st.session_state.hv_remote_directory,  # add this
+        'remote_command': st.session_state.remote_command,
+        'hv_remote_command': st.session_state.hv_remote_command,
+        'relative_archive': st.session_state.get('relative_archive', 'archive'),
+        'relative_flag': st.session_state.get('relative_flag', 'FLAG'),
+    }
+    with open(USER_CONFIG_FILE, 'w') as f:
+        json.dump(config, f, indent=2)
+
+# ── Load persisted config BEFORE any st. widget calls that need these values ──
+_uc = load_user_config()
+defaults = {
+    'remote_host': 'user@spartan.hpc.unimelb.edu.au',
+    'remote_directory': '~/_R12860_DATA_MONITOR/SCAN_DATA',
+    'hv_remote_directory': '~/_R12860_DATA_MONITOR/HV_CHECK',
+    'remote_command': 'sbatch ./RUN_PMT_SCAN_DATA_MONITOR.slurm {SN}',
+    'hv_remote_command': 'sbatch ./HV_CHECK/RUN_HV_CHECK_TEST.slurm {SN} {HVNOMLL} {HVNOML} {HVNOM} {HVNOMH} {HVNOMHH}',
+    'relative_archive': 'archive',
+    'relative_flag': 'FLAG',
+    'serial_number_pmt1': '',
+    'serial_number_pmt2': '',
+    'hv_value_pmt1': '',
+    'hv_value_pmt2': '',
+    'cleanup_time_hours': 24,
+    'selected_plot_pmt1': None,
+    'selected_plot_pmt2': None,
+    'show_overlay': False,
+    'example_plot_path': 'example_data/GOOD_DATA_charge.png',
+}
+for key, default in defaults.items():
+    if key not in st.session_state:
+        st.session_state[key] = _uc.get(key, default)
+
 # ============================================================================
 # GLOBAL SERVER CONFIGURATION (Top of page)
 # ============================================================================
@@ -34,34 +82,58 @@ col_srv1, col_srv2 = st.columns(2)
 with col_srv1:
     st.session_state.remote_host = st.text_input(
         "Remote Host",
-        value=st.session_state.get("remote_host", "user@spartan.hpc.unimelb.edu.au"),
+        value=st.session_state.remote_host,
         key="remote_host_global",
         help="Format: username@hostname"
     )
-    # Keep HV host in sync - they're the same server
-    st.session_state.hv_remote_host = st.session_state.remote_host
-
+    st.session_state.hv_remote_host = st.session_state.remote_host  # keep - same host
+    
     st.session_state.remote_directory = st.text_input(
-        "Remote Directory",
-        value=st.session_state.get("remote_directory", "~/Precal_GUI"),
+        "Scan Remote Directory",
+        value=st.session_state.remote_directory,
         key="remote_dir_global"
     )
-    st.session_state.hv_remote_directory = st.session_state.remote_directory
+    st.session_state.hv_remote_directory = st.text_input(
+        "HV Remote Directory",
+        value=st.session_state.hv_remote_directory,
+        key="hv_remote_dir_global"
+    )
+    # REMOVE the old line: st.session_state.hv_remote_directory = st.session_state.remote_directory
+    
+    st.session_state.remote_command = st.text_input(
+        "Scan Command",
+        value=st.session_state.remote_command,
+        key="remote_cmd_global",
+        help="Executed in Scan Remote Directory. Placeholder: {SN}"
+    )
+    st.session_state.hv_remote_command = st.text_input(
+        "HV Command",
+        value=st.session_state.hv_remote_command,
+        key="hv_remote_cmd_global",
+        help="Executed in HV Remote Directory. Placeholders: {SN}, {HVNOMLL}, {HVNOML}, {HVNOM}, {HVNOMH}, {HVNOMHH}"
+    )
 
 with col_srv2:
-    st.session_state.archive_directory = st.text_input(
-        "Archive Directory",
-        value=st.session_state.get("archive_directory", "~/Precal_GUI/archive"),
-        key="archive_dir_global"
+    relative_archive = st.text_input(
+        "Archive Subdirectory (relative to Remote Dir)",
+        value=st.session_state.get("relative_archive", "archive"),
+        key="relative_archive_global"
     )
-    st.session_state.hv_archive_directory = st.session_state.archive_directory.replace("archive", "HV_CHECK/archive")
+    relative_flag = st.text_input(
+        "Flag Subdirectory (relative to Remote Dir)",
+        value=st.session_state.get("relative_flag", "FLAG"),
+        key="relative_flag_global"
+    )
+    st.session_state.relative_archive = relative_archive
+    st.session_state.relative_flag = relative_flag
+    st.session_state.archive_directory = st.session_state.remote_directory.rstrip("/") + "/" + relative_archive
+    st.session_state.flag_directory = st.session_state.remote_directory.rstrip("/") + "/" + relative_flag
+    st.session_state.hv_archive_directory = st.session_state.hv_remote_directory.rstrip("/") + "/" + relative_archive
+    st.session_state.hv_flag_directory = st.session_state.hv_remote_directory.rstrip("/") + "/" + relative_flag
 
-    st.session_state.flag_directory = st.text_input(
-        "Flag Directory",
-        value=st.session_state.get("flag_directory", "~/Precal_GUI/FLAG"),
-        key="flag_dir_global"
-    )
-    st.session_state.hv_flag_directory = st.session_state.flag_directory.replace("FLAG", "HV_CHECK/FLAG")
+    if st.button("💾 Save Configuration", key="save_config_global"):
+        save_user_config()
+        st.success("Configuration saved!")
 
 st.divider()
 # ============================================================================
@@ -579,45 +651,44 @@ def find_hv_value_file(sync_data_dir, serial_number):
 
 # Replace these session_state initializations:
 
-if "remote_host" not in st.session_state:
-    st.session_state.remote_host = "user@spartan.hpc.unimelb.edu.au"  # generic placeholder
+# if "remote_host" not in st.session_state:
+#     st.session_state.remote_host = "user@spartan.hpc.unimelb.edu.au"  # generic placeholder
 
-if "remote_directory" not in st.session_state:
-    st.session_state.remote_directory = "~/Precal_GUI"  # relative to home on remote
+# if "remote_directory" not in st.session_state:
+#     st.session_state.remote_directory = "~/_R12860_DATA_MONITOR/SCAN_DATA"  # relative to home on remote
 
-if "remote_command" not in st.session_state:
-    st.session_state.remote_command = "sbatch ./RUN_LIVE_MONITORING_ALL_TEST.slurm {SN}"
+# if "remote_command" not in st.session_state:
+#     st.session_state.remote_command = "sbatch ./RUN_PMT_SCAN_DATA_MONITOR.slurm {SN}"
 
-if "hv_remote_host" not in st.session_state:
-    st.session_state.hv_remote_host = "user@spartan.hpc.unimelb.edu.au"
+# if "hv_remote_host" not in st.session_state:
+#     st.session_state.hv_remote_host = "user@spartan.hpc.unimelb.edu.au"
 
-if "hv_remote_directory" not in st.session_state:
-    st.session_state.hv_remote_directory = "~/Precal_GUI"
+# if "hv_remote_directory" not in st.session_state:
+#     st.session_state.hv_remote_directory = "~/_R12860_DATA_MONITOR"
 
-if "hv_remote_command" not in st.session_state:
-    st.session_state.hv_remote_command = "sbatch ./HV_CHECK/RUN_HV_CHECK_TEST.slurm {SN} {HVNOMLL} {HVNOML} {HVNOM} {HVNOMH} {HVNOMHH}"
+# if "hv_remote_command" not in st.session_state:
+#     st.session_state.hv_remote_command = "sbatch ./HV_CHECK/RUN_HV_CHECK_TEST.slurm {SN} {HVNOMLL} {HVNOML} {HVNOM} {HVNOMH} {HVNOMHH}"
 
-if "archive_directory" not in st.session_state:
-    st.session_state.archive_directory = "~/Precal_GUI/archive"
+# if "archive_directory" not in st.session_state:
+#     st.session_state.archive_directory = "~/_R12860_DATA_MONITOR/SCAN_DATA/archive"
 
-if "flag_directory" not in st.session_state:
-    st.session_state.flag_directory = "~/Precal_GUI/FLAG"
+# if "flag_directory" not in st.session_state:
+#     st.session_state.flag_directory = "~/_R12860_DATA_MONITOR/SCAN_DATA/FLAG"
 
-if "hv_archive_directory" not in st.session_state:
-    st.session_state.hv_archive_directory = "~/Precal_GUI/HV_CHECK/archive"
+# if "hv_archive_directory" not in st.session_state:
+#     st.session_state.hv_archive_directory = "~/_R12860_DATA_MONITOR/HV_CHECK/archive"
 
-if "hv_flag_directory" not in st.session_state:
-    st.session_state.hv_flag_directory = "~/Precal_GUI/HV_CHECK/FLAG"
+# if "hv_flag_directory" not in st.session_state:
+#     st.session_state.hv_flag_directory = "~/_R12860_DATA_MONITOR/HV_CHECK/FLAG"
 
+# if "cleanup_time_hours" not in st.session_state:
+#     st.session_state.cleanup_time_hours = 24
 
-if "cleanup_time_hours" not in st.session_state:
-    st.session_state.cleanup_time_hours = 24
+# if "selected_plot_pmt1" not in st.session_state:
+#     st.session_state.selected_plot_pmt1 = None
 
-if "selected_plot_pmt1" not in st.session_state:
-    st.session_state.selected_plot_pmt1 = None
-
-if "selected_plot_pmt2" not in st.session_state:
-    st.session_state.selected_plot_pmt2 = None
+# if "selected_plot_pmt2" not in st.session_state:
+#     st.session_state.selected_plot_pmt2 = None
 
 if "show_overlay" not in st.session_state:
     st.session_state.show_overlay = False
@@ -928,47 +999,47 @@ def display_scan_grid(pmt_id, serial_number):
 with tab1:
     st.write("High Voltage Check - Dual PMT Mode")
     
-    # Server Configuration for HV Check
-    with st.expander("🔧 HV Check Server Configuration"):
-        col_hv_config1, col_hv_config2 = st.columns(2)
+    # # Server Configuration for HV Check
+    # with st.expander("🔧 HV Check Server Configuration"):
+    #     col_hv_config1, col_hv_config2 = st.columns(2)
         
-        with col_hv_config1:
-            st.session_state.hv_remote_host = st.text_input(
-                "HV Remote Host",
-                value=st.session_state.hv_remote_host,
-                key="hv_remote_host_config"
-            )
-            st.session_state.hv_remote_directory = st.text_input(
-                "HV Remote Directory",
-                value=st.session_state.hv_remote_directory,
-                key="hv_remote_dir_config"
-            )
+    #     with col_hv_config1:
+    #         st.session_state.hv_remote_host = st.text_input(
+    #             "HV Remote Host",
+    #             value=st.session_state.hv_remote_host,
+    #             key="hv_remote_host_config"
+    #         )
+    #         st.session_state.hv_remote_directory = st.text_input(
+    #             "HV Remote Directory",
+    #             value=st.session_state.hv_remote_directory,
+    #             key="hv_remote_dir_config"
+    #         )
         
-        with col_hv_config2:
-            st.session_state.hv_remote_command = st.text_input(
-                "HV Command to Execute",
-                value=st.session_state.hv_remote_command,
-                key="hv_remote_cmd_config",
-                help="Use placeholders: {SN}, {HVNOMLL}, {HVNOML}, {HVNOM}, {HVNOMH}, {HVNOMHH}"
-            )
-            st.caption("Available placeholders: {SN}, {HVNOMLL}, {HVNOML}, {HVNOM}, {HVNOMH}, {HVNOMHH}")
+    #     with col_hv_config2:
+    #         st.session_state.hv_remote_command = st.text_input(
+    #             "HV Command to Execute",
+    #             value=st.session_state.hv_remote_command,
+    #             key="hv_remote_cmd_config",
+    #             help="Use placeholders: {SN}, {HVNOMLL}, {HVNOML}, {HVNOM}, {HVNOMH}, {HVNOMHH}"
+    #         )
+    #         st.caption("Available placeholders: {SN}, {HVNOMLL}, {HVNOML}, {HVNOM}, {HVNOMH}, {HVNOMHH}")
         
-        col_hv_arch1, col_hv_arch2 = st.columns(2)
-        with col_hv_arch1:
-            st.session_state.hv_archive_directory = st.text_input(
-                "HV Archive Directory",
-                value=st.session_state.hv_archive_directory,
-                key="hv_archive_dir_config"
-            )
+    #     col_hv_arch1, col_hv_arch2 = st.columns(2)
+    #     with col_hv_arch1:
+    #         st.session_state.hv_archive_directory = st.text_input(
+    #             "HV Archive Directory",
+    #             value=st.session_state.hv_archive_directory,
+    #             key="hv_archive_dir_config"
+    #         )
         
-        with col_hv_arch2:
-            st.session_state.hv_flag_directory = st.text_input(
-                "HV Flag Directory",
-                value=st.session_state.hv_flag_directory,
-                key="hv_flag_dir_config"
-            )
+    #     with col_hv_arch2:
+    #         st.session_state.hv_flag_directory = st.text_input(
+    #             "HV Flag Directory",
+    #             value=st.session_state.hv_flag_directory,
+    #             key="hv_flag_dir_config"
+    #         )
     
-    st.divider()
+    # st.divider()
 
     # PMT 1 Section
     st.markdown('<div class="pmt-section pmt1-border">', unsafe_allow_html=True)
@@ -1585,44 +1656,44 @@ with tab2:
     st.sidebar.divider()
 
     # Server Configuration for Data Monitoring
-    with st.expander("🔧 Data Monitoring Server Configuration"):
-        col_dm_config1, col_dm_config2 = st.columns(2)
+    # with st.expander("🔧 Data Monitoring Server Configuration"):
+    #     col_dm_config1, col_dm_config2 = st.columns(2)
         
-        with col_dm_config1:
-            st.session_state.remote_host = st.text_input(
-                "Remote Host",
-                value=st.session_state.remote_host,
-                key="remote_host_tab2"
-            )
-            st.session_state.remote_directory = st.text_input(
-                "Remote Directory",
-                value=st.session_state.remote_directory,
-                key="remote_dir_tab2"
-            )
+    #     with col_dm_config1:
+    #         st.session_state.remote_host = st.text_input(
+    #             "Remote Host",
+    #             value=st.session_state.remote_host,
+    #             key="remote_host_tab2"
+    #         )
+    #         st.session_state.remote_directory = st.text_input(
+    #             "Remote Directory",
+    #             value=st.session_state.remote_directory,
+    #             key="remote_dir_tab2"
+    #         )
         
-        with col_dm_config2:
-            st.session_state.remote_command = st.text_input(
-                "Command to Execute",
-                value=st.session_state.remote_command,
-                key="remote_cmd_tab2",
-                help="Use placeholder: {SN}"
-            )
-            st.caption("Available placeholder: {SN}")
+    #     with col_dm_config2:
+    #         st.session_state.remote_command = st.text_input(
+    #             "Command to Execute",
+    #             value=st.session_state.remote_command,
+    #             key="remote_cmd_tab2",
+    #             help="Use placeholder: {SN}"
+    #         )
+    #         st.caption("Available placeholder: {SN}")
         
-        col_dm_arch1, col_dm_arch2 = st.columns(2)
-        with col_dm_arch1:
-            st.session_state.archive_directory = st.text_input(
-                "Archive Directory",
-                value=st.session_state.archive_directory,
-                key="archive_dir_tab2"
-            )
+    #     col_dm_arch1, col_dm_arch2 = st.columns(2)
+    #     with col_dm_arch1:
+    #         st.session_state.archive_directory = st.text_input(
+    #             "Archive Directory",
+    #             value=st.session_state.archive_directory,
+    #             key="archive_dir_tab2"
+    #         )
         
-        with col_dm_arch2:
-            st.session_state.flag_directory = st.text_input(
-                "Flag Directory",
-                value=st.session_state.flag_directory,
-                key="flag_dir_tab2"
-            )
+    #     with col_dm_arch2:
+    #         st.session_state.flag_directory = st.text_input(
+    #             "Flag Directory",
+    #             value=st.session_state.flag_directory,
+    #             key="flag_dir_tab2"
+    #         )
 
     with st.sidebar.expander("Data Cleanup"):
         cleanup_hours = st.number_input(

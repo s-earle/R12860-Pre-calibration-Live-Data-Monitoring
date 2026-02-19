@@ -13,7 +13,21 @@ from datetime import datetime
 
 CONFIG_FILE = "executor_config.json"
 STATUS_FILE = "executor_status.json"
+USER_CONFIG_FILE = "user_config.json"
 
+def load_user_config():
+    if os.path.exists(USER_CONFIG_FILE):
+        try:
+            with open(USER_CONFIG_FILE, 'r') as f:
+                return json.load(f)
+        except:
+            return {}
+    return {}
+
+def save_user_config(config):
+    with open(USER_CONFIG_FILE, 'w') as f:
+        json.dump(config, f, indent=2)
+        
 def load_config():
     """Load configuration from file"""
     if os.path.exists(CONFIG_FILE):
@@ -92,17 +106,11 @@ def sync_from_spartan(remote_host, remote_dir, local_dir="synced_data/", serial_
 
 
 def execute_command(remote_host, remote_dir, remote_command, serial_number=None):
-    """Execute command on remote server"""
-    # Replace {SN} placeholder with actual serial number
     if serial_number and '{SN}' in remote_command:
-        actual_command = remote_command.replace('{SN}', serial_number)
-    else:
-        actual_command = remote_command
+        remote_command = remote_command.replace('{SN}', serial_number)
     
-    ssh_command = (
-        f"ssh {remote_host} "
-        f"'cd {remote_dir} && {actual_command}'"
-    )
+    ssh_command = f"ssh {remote_host} 'cd {remote_dir} && {remote_command}'"
+    # ... rest unchanged
     
     try:
         result = subprocess.run(

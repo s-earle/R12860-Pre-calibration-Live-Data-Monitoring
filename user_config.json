@@ -1,0 +1,9 @@
+{
+  "remote_host": "earles@spartan.hpc.unimelb.edu.au",
+  "remote_directory": "/data/gpfs/projects/punim1378/earles/_R12860_DATA_MONITOR/SCAN_DATA",
+  "hv_remote_directory": "/data/gpfs/projects/punim1378/earles/_R12860_DATA_MONITOR/HV_CHECK",
+  "remote_command": "sbatch ./RUN_PMT_SCAN_DATA_MONITOR.slurm {SN}",
+  "hv_remote_command": "sbatch ./HV_CHECK/RUN_HV_CHECK_TEST.slurm {SN} {HVNOMLL} {HVNOML} {HVNOM} {HVNOMH} {HVNOMHH}",
+  "relative_archive": "archive",
+  "relative_flag": "FLAG"
+}
