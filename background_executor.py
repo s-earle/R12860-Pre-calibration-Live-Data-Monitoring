@@ -10,9 +10,10 @@ import json
 import os
 import glob
 from datetime import datetime
+import sys
 
-CONFIG_FILE = "executor_config.json"
-STATUS_FILE = "executor_status.json"
+CONFIG_FILE = sys.argv[1] if len(sys.argv) > 1 else "executor_config.json"
+STATUS_FILE = sys.argv[2] if len(sys.argv) > 2 else "executor_status.json"
 USER_CONFIG_FILE = "user_config.json"
 
 def load_user_config():
@@ -27,7 +28,7 @@ def load_user_config():
 def save_user_config(config):
     with open(USER_CONFIG_FILE, 'w') as f:
         json.dump(config, f, indent=2)
-        
+
 def load_config():
     """Load configuration from file"""
     if os.path.exists(CONFIG_FILE):
@@ -46,15 +47,15 @@ def save_status(status_data):
 def sync_from_spartan(remote_host, remote_dir, local_dir="synced_data/", serial_number=None):
     """Execute rsync command to sync files from scan_output directories AND HV_analysis directories"""
     try:
-        # Sync from scan_output directories (existing functionality)
+        # Sync from scan_output directories
         if serial_number:
-            source_path = f"{remote_dir}/scan_output_*/{serial_number}/"
+            source_path = f"{remote_dir}/scan_output_{serial_number}/"
         else:
             source_path = f"{remote_dir}/scan_output_*/"
         
         rsync_command = (
-            f"rsync -avz --include='*/' "
-            f"--include='scan_output_*/' "
+            f"rsync -avz "
+            f"--include='*/' "
             f"--include='*_charge.png' "
             f"--include='*_GAIN.txt' "
             f"--exclude='*' "
@@ -110,7 +111,6 @@ def execute_command(remote_host, remote_dir, remote_command, serial_number=None)
         remote_command = remote_command.replace('{SN}', serial_number)
     
     ssh_command = f"ssh {remote_host} 'cd {remote_dir} && {remote_command}'"
-    # ... rest unchanged
     
     try:
         result = subprocess.run(
@@ -125,28 +125,30 @@ def execute_command(remote_host, remote_dir, remote_command, serial_number=None)
         if result.returncode == 0 and "Submitted batch job" in result.stdout:
             job_id = result.stdout.strip().split()[-1]
         
-        return result.returncode == 0, result.stdout, result.stderr, job_id  # Added job_id
+        return result.returncode == 0, result.stdout, result.stderr, job_id
     except Exception as e:
-        return False, "", str(e), None  # Added None for job_id
+        return False, "", str(e), None
 
 def count_data_points(local_dir="synced_data/"):
     """Count how many data points have been synced"""
     if not os.path.exists(local_dir):
         return 0
     
-    # Count unique theta/phi combinations from PNG files
+    import re
     png_files = glob.glob(f"{local_dir}/**/*_charge.png", recursive=True)
     
-    # Extract unique theta/phi pairs
     unique_points = set()
     for f in png_files:
-        # Extract theta and phi from filename
-        import re
         match = re.search(r'theta(\d+)_phi(\d+)', f)
         if match:
             theta = int(match.group(1))
             phi = int(match.group(2))
             unique_points.add((theta, phi))
+        
+        # Also count HV data points
+        hv_match = re.search(r'HV_(\d+)_charge', f)
+        if hv_match:
+            unique_points.add(('HV', hv_match.group(1)))
     
     return len(unique_points)
 
@@ -182,13 +184,13 @@ def main():
                     'message': 'Starting SLURM job on server'
                 })
                 
-                # Execute the SLURM job ONCE - it will handle all points
+                # Execute the SLURM job ONCE
                 print(f"  Submitting SLURM job to {remote_dir}...")
                 print(f"  Command: {remote_command}")
                 exec_success, stdout, stderr, job_id = execute_command(
                     config['remote_host'],
                     remote_dir,
-                    remote_command,  # CHANGED: Use the variable
+                    remote_command,
                     serial_number=config.get('serial_number')
                 )
                 
@@ -203,7 +205,6 @@ def main():
                         with open(CONFIG_FILE, 'w') as f:
                             json.dump(config, f, indent=2)
                         print(f"  Saved job ID: {job_id}")
-                        
                 else:
                     print(f"✗ SLURM job submission FAILED")
                     if stderr:
@@ -216,8 +217,9 @@ def main():
                 sync_interval = 30  # Check for new data every 30 seconds
                 max_wait_cycles = 720  # Maximum wait time: 720 * 30s = 6 hours
                 wait_cycles = 0
+                monitoring_active = True
                 
-                while True:
+                while monitoring_active:
                     # Check if we should stop
                     config = load_config()
                     if not config or not config.get('running'):
@@ -228,6 +230,7 @@ def main():
                             'total': config.get('total_runs', 0) if config else 0,
                             'message': 'Stopped by user - Ready for new commands'
                         })
+                        monitoring_active = False
                         break
                     
                     # Use hv_remote_directory if present, otherwise use remote_directory
@@ -245,11 +248,11 @@ def main():
                     # Count data points
                     current_count = count_data_points()
                     
-                    # Check if new data appeared
                     if current_count > previous_count:
+                        # New data arrived
                         print(f"  ✓ New data detected! ({previous_count} → {current_count})")
                         previous_count = current_count
-                        wait_cycles = 0  # Reset timeout counter
+                        wait_cycles = 0  # Reset timeout counter on new data
                         
                         save_status({
                             'running': True,
@@ -271,7 +274,7 @@ def main():
                             )
                             
                             save_status({
-                                'running': False,          # <-- this deactivates the buttons
+                                'running': False,
                                 'completed': config['total_runs'],
                                 'total': config['total_runs'],
                                 'message': 'Monitoring complete - All data collected'
@@ -280,9 +283,22 @@ def main():
                             config['running'] = False
                             with open(CONFIG_FILE, 'w') as f:
                                 json.dump(config, f, indent=2)
+                            
+                            monitoring_active = False
                             break
-                        print(f"  Waiting for new data... ({current_count}/{config['total_runs']} points collected)")
+                    
+                    else:
+                        # No new data yet
                         wait_cycles += 1
+                        print(f"  Waiting for new data... ({current_count}/{config['total_runs']} points collected, cycle {wait_cycles}/{max_wait_cycles})")
+                        
+                        save_status({
+                            'running': True,
+                            'completed': current_count,
+                            'total': config['total_runs'],
+                            'message': f'Waiting for data... ({current_count}/{config["total_runs"]})',
+                            'last_success': sync_success
+                        })
                         
                         # Check for timeout
                         if wait_cycles >= max_wait_cycles:
@@ -294,24 +310,16 @@ def main():
                                 'message': f'Timeout - Only {current_count}/{config["total_runs"]} points collected'
                             })
                             
-                            if config:
-                                config['running'] = False
-                                with open(CONFIG_FILE, 'w') as f:
-                                    json.dump(config, f, indent=2)
+                            config['running'] = False
+                            with open(CONFIG_FILE, 'w') as f:
+                                json.dump(config, f, indent=2)
+                            
+                            monitoring_active = False
                             break
-                        
-                        save_status({
-                            'running': True,
-                            'completed': current_count,
-                            'total': config['total_runs'],
-                            'message': f'Waiting for data... ({current_count}/{config["total_runs"]})',
-                            'last_success': sync_success
-                        })
                     
-                    # Wait before next sync
+                    # Wait before next sync, checking for cancellation each second
                     print(f"  Waiting {sync_interval} seconds before next sync...")
-                    for i in range(sync_interval):
-                        # Check for cancellation during wait
+                    for _ in range(sync_interval):
                         config = load_config()
                         if not config or not config.get('running'):
                             print(f"\n[{datetime.now().strftime('%H:%M:%S')}] Cancelled during wait")
@@ -321,11 +329,9 @@ def main():
                                 'total': config.get('total_runs', 0) if config else 0,
                                 'message': 'Stopped by user - Ready for new commands'
                             })
+                            monitoring_active = False
                             break
                         time.sleep(1)
-                    else:
-                        continue
-                    break
             
             # Wait before checking again
             time.sleep(2)
