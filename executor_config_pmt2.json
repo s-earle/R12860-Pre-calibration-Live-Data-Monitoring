@@ -1,0 +1,21 @@
+{
+  "running": false,
+  "remote_host": "earles@spartan.hpc.unimelb.edu.au",
+  "hv_remote_directory": "/data/gpfs/projects/punim1378/earles/_R12860_DATA_MONITOR",
+  "hv_remote_command": "sbatch ./HV_CHECK/RUN_HV_CHECK_TEST_python.slurm sn123 1900 1950 2000 2050 2100",
+  "serial_number": "sn123",
+  "hv_value": "2000",
+  "hv_scan_values": [
+    1900,
+    1950,
+    2000,
+    2050,
+    2100
+  ],
+  "pmt_id": "pmt2",
+  "total_runs": 5,
+  "interval_seconds": 5,
+  "job_ids": [
+    "21905929"
+  ]
+}
