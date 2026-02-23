@@ -48,8 +48,9 @@ def sync_from_spartan(remote_host, remote_dir, local_dir="synced_data/", serial_
     """Execute rsync command to sync files from scan_output directories AND HV_analysis directories"""
     try:
         # Sync from scan_output directories
+        # output_dir = os.path.join(script_dir, f"scan_output_{curr_datetime}", SN, f"data_theta{theta}_phi{phi}")
         if serial_number:
-            source_path = f"{remote_dir}/scan_output_{serial_number}/"
+            source_path = f"{remote_dir}/scan_output_*/{serial_number}"
         else:
             source_path = f"{remote_dir}/scan_output_*/"
         

@@ -390,7 +390,7 @@ def sync_from_spartan(remote_host, remote_dir, local_dir="synced_data/", serial_
         # Sync from scan_output directories (existing functionality)
         if serial_number:
             # source_path = f"{remote_dir}/scan_output_{serial_number}/{curr_date}/"
-            source_path = f"{remote_dir}/scan_output_{serial_number}/"
+            source_path = f"{remote_dir}/scan_output_*/{serial_number}"
         else:
             source_path = f"{remote_dir}/scan_output_*/"
         
