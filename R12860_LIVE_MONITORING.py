@@ -364,7 +364,7 @@ def flag_HV_data_on_server(remote_host, remote_dir, flag_dir):
         
         move_command = (
             f"ssh {remote_host} "
-            f"'mv {remote_dir}/HV_CHECK/HV_output* {remote_dir}/*.log {flag_dir}/ 2>/dev/null || true'"
+            f"'mv {remote_dir}/HV_CHECK/HV_output* {remote_dir}/*.log HV_CHECK/{flag_dir}/ 2>/dev/null || true'"
         )
         
         result = subprocess.run(
