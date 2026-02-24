@@ -37,9 +37,9 @@ def load_user_config():
 def save_user_config():
     config = {
         'remote_host': st.session_state.remote_host,
-        'remote_directory': st.session_state.remote_directory,
+        'scan_remote_directory': st.session_state.scan_remote_directory,
         'hv_remote_directory': st.session_state.hv_remote_directory,  # add this
-        'remote_command': st.session_state.remote_command,
+        'scan_remote_command': st.session_state.scan_remote_command,
         'hv_remote_command': st.session_state.hv_remote_command,
         'relative_archive': st.session_state.get('relative_archive', 'archive'),
         'relative_flag': st.session_state.get('relative_flag', 'FLAG'),
@@ -51,9 +51,9 @@ def save_user_config():
 _uc = load_user_config()
 defaults = {
     'remote_host': 'user@spartan.hpc.unimelb.edu.au',
-    'remote_directory': '~/_R12860_DATA_MONITOR/SCAN_DATA',
+    'scan_remote_directory': '~/_R12860_DATA_MONITOR/SCAN_DATA',
     'hv_remote_directory': '~/_R12860_DATA_MONITOR/HV_CHECK',
-    'remote_command': 'sbatch ./RUN_PMT_SCAN_DATA_MONITOR.slurm {SN}',
+    'scan_remote_command': 'sbatch ./RUN_PMT_SCAN_DATA_MONITOR.slurm {SN}',
     'hv_remote_command': 'sbatch ./HV_CHECK/RUN_HV_CHECK_TEST.slurm {SN} {HVNOMLL} {HVNOML} {HVNOM} {HVNOMH} {HVNOMHH}',
     'relative_archive': 'archive',
     'relative_flag': 'FLAG',
@@ -90,9 +90,9 @@ with col_srv1:
     )
     st.session_state.hv_remote_host = st.session_state.remote_host  # keep - same host
     
-    st.session_state.remote_directory = st.text_input(
+    st.session_state.scan_remote_directory = st.text_input(
         "Scan Remote Directory",
-        value=st.session_state.remote_directory,
+        value=st.session_state.scan_remote_directory,
         key="remote_dir_global"
     )
     st.session_state.hv_remote_directory = st.text_input(
@@ -100,11 +100,10 @@ with col_srv1:
         value=st.session_state.hv_remote_directory,
         key="hv_remote_dir_global"
     )
-    # REMOVE the old line: st.session_state.hv_remote_directory = st.session_state.remote_directory
     
-    st.session_state.remote_command = st.text_input(
+    st.session_state.scan_remote_command = st.text_input(
         "Scan Command",
-        value=st.session_state.remote_command,
+        value=st.session_state.scan_remote_command,
         key="remote_cmd_global",
         help="Executed in Scan Remote Directory. Placeholder: {SN}"
     )
@@ -128,8 +127,8 @@ with col_srv2:
     )
     st.session_state.relative_archive = relative_archive
     st.session_state.relative_flag = relative_flag
-    st.session_state.archive_directory = st.session_state.remote_directory.rstrip("/") + "/" + relative_archive
-    st.session_state.flag_directory = st.session_state.remote_directory.rstrip("/") + "/" + relative_flag
+    st.session_state.archive_directory = st.session_state.scan_remote_directory.rstrip("/") + "/" + relative_archive
+    st.session_state.flag_directory = st.session_state.scan_remote_directory.rstrip("/") + "/" + relative_flag
     st.session_state.hv_archive_directory = st.session_state.hv_remote_directory.rstrip("/") + "/" + relative_archive
     st.session_state.hv_flag_directory = st.session_state.hv_remote_directory.rstrip("/") + "/" + relative_flag
 
@@ -330,7 +329,7 @@ def archive_HV_data_on_server(remote_host, remote_dir, archive_dir):
         
         move_command = (
             f"ssh {remote_host} "
-            f"'mv {remote_dir}/HV_CHECK/HV_output* {remote_dir}/*.log {archive_dir}/ 2>/dev/null || true'"
+            f"'mv {remote_dir}/HV_output* {remote_dir}/*.log {archive_dir}/ 2>/dev/null || true'"
         )
         
         result = subprocess.run(
@@ -364,7 +363,7 @@ def flag_HV_data_on_server(remote_host, remote_dir, flag_dir):
         
         move_command = (
             f"ssh {remote_host} "
-            f"'mv {remote_dir}/HV_CHECK/HV_output* {remote_dir}/*.log {flag_dir}/ 2>/dev/null || true'"
+            f"'mv {remote_dir}/HV_output* {remote_dir}/*.log {flag_dir}/ 2>/dev/null || true'"
         )
         
         result = subprocess.run(
@@ -382,7 +381,6 @@ def flag_HV_data_on_server(remote_host, remote_dir, flag_dir):
     except Exception as e:
         return False, f"Flag error: {str(e)}"
 
-curr_date = datetime.now().strftime('%Y%m%d')
 
 def sync_from_spartan(remote_host, remote_dir, local_dir="synced_data/", serial_number=None):
     """Execute rsync command to sync files from scan_output directories AND HV_analysis directories"""
@@ -413,9 +411,9 @@ def sync_from_spartan(remote_host, remote_dir, local_dir="synced_data/", serial_
         
         # ALSO sync HV analysis plots
         if serial_number:
-            hv_source_path = f"{remote_dir}/HV_CHECK/HV_output_*/{serial_number}/"
+            hv_source_path = f"{remote_dir}/HV_output_*/{serial_number}/"
         else:
-            hv_source_path = f"{remote_dir}/HV_CHECK/HV_output_*/"
+            hv_source_path = f"{remote_dir}/HV_output_*/"
         
         rsync_hv_command = (
             f"rsync -avz --include='*/' "
@@ -1580,8 +1578,8 @@ with tab1:
                             with open(hv_value_file, 'r') as f:
                                 hv_required = f.read().strip()
                             st.markdown(f"""
-                            <div style="text-align: center; padding: 15px; background-color: #d4edda; border-radius: 10px; margin: 15px 0;">
-                                <h3 style="color: #155724; margin: 0; font-weight: bold;">Required HV: {hv_required} V</h3>
+                            <div style="text-align: center; padding: 15px; background-color: #f3e5f5; border-radius: 10px; margin: 15px 0;">
+                                <h3 style="color: #6a1b9a; margin: 0; font-weight: bold;">Required HV: {hv_required} V</h3>
                             </div>
                             """, unsafe_allow_html=True)
                         except:
@@ -1686,6 +1684,7 @@ with tab2:
     
     # Background Executor Status
     st.sidebar.header("Background Executor")
+    st.sidebar.caption("This runs in the background to ensure that the software can regularly sync with the server")
     if executor_alive_pmt1 or executor_alive_pmt2:
         st.sidebar.success(f"✅ Running (PMT1: {executor_alive_pmt1}, PMT2: {executor_alive_pmt2})")
     else:
@@ -1694,7 +1693,7 @@ with tab2:
     col_exec1, col_exec2 = st.sidebar.columns(2)
     with col_exec1:
         both_alive = executor_alive_pmt1 and executor_alive_pmt2
-        if st.sidebar.button("▶️ Start Both", disabled=both_alive, use_container_width=True, key="start_exec_tab2"):
+        if st.sidebar.button("▶️ Start", disabled=both_alive, use_container_width=True, key="start_exec_tab2"):
             start_background_executor("pmt1")
             start_background_executor("pmt2")
             st.rerun()
@@ -1707,7 +1706,7 @@ with tab2:
 
     with col_exec2:
         either_alive = executor_alive_pmt1 or executor_alive_pmt2
-        if st.sidebar.button("⏹️ Stop Both", disabled=not either_alive, use_container_width=True, key="stop_exec_tab2"):
+        if st.sidebar.button("⏹️ Stop", disabled=not either_alive, use_container_width=True, key="stop_exec_tab2"):
             stop_background_executor("pmt1")
             stop_background_executor("pmt2")
             st.rerun()
@@ -1896,7 +1895,7 @@ with tab2:
                     st.info("Archiving existing data on server before starting...")
                     success, message = archive_data_on_server(
                         st.session_state.remote_host,
-                        st.session_state.remote_directory,
+                        st.session_state.scan_remote_directory,
                         st.session_state.archive_directory
                     )
                     
@@ -1906,15 +1905,15 @@ with tab2:
                         st.warning(f"⚠️ Archive warning: {message}")
                     
                     # Format command with serial number
-                    formatted_command = st.session_state.remote_command.format(
+                    formatted_command = st.session_state.scan_remote_command.format(
                         SN=st.session_state.serial_number_pmt1
                     )
                     
                     config = {
                         'running': True,
                         'remote_host': st.session_state.remote_host,
-                        'remote_directory': st.session_state.remote_directory,
-                        'remote_command': formatted_command,
+                        'scan_remote_directory': st.session_state.scan_remote_directory,
+                        'scan_remote_command': formatted_command,
                         'serial_number': st.session_state.serial_number_pmt1,
                         'pmt_id': 'pmt1',
                         'total_runs': 21,
@@ -1981,7 +1980,7 @@ with tab2:
                 st.info("Syncing PMT 1 scan data from server...")
                 
                 sn = st.session_state.serial_number_pmt1 if st.session_state.serial_number_pmt1.strip() else None
-                success, msg = sync_from_spartan(st.session_state.remote_host, st.session_state.remote_directory, serial_number=sn)
+                success, msg = sync_from_spartan(st.session_state.remote_host, st.session_state.scan_remote_directory, serial_number=sn)
                 
                 if success:
                     st.success(f"✅ {msg}")
@@ -1999,7 +1998,7 @@ with tab2:
                     st.info("Archiving PMT 1 scan data...")
                     success, message = archive_data_on_server(
                         st.session_state.remote_host,
-                        st.session_state.remote_directory,
+                        st.session_state.scan_remote_directory,
                         st.session_state.archive_directory
                     )
                     
@@ -2013,7 +2012,7 @@ with tab2:
                     st.info("Flagging PMT 1 scan data...")
                     success, message = flag_data_on_server(
                         st.session_state.remote_host,
-                        st.session_state.remote_directory,
+                        st.session_state.scan_remote_directory,
                         st.session_state.flag_directory
                     )
                     
@@ -2090,7 +2089,7 @@ with tab2:
                     st.info("Archiving existing data on server before starting...")
                     success, message = archive_data_on_server(
                         st.session_state.remote_host,
-                        st.session_state.remote_directory,
+                        st.session_state.scan_remote_directory,
                         st.session_state.archive_directory
                     )
                     
@@ -2100,15 +2099,15 @@ with tab2:
                         st.warning(f"⚠️ Archive warning: {message}")
                     
                     # Format command with serial number
-                    formatted_command = st.session_state.remote_command.format(
+                    formatted_command = st.session_state.scan_remote_command.format(
                         SN=st.session_state.serial_number_pmt2
                     )
                     
                     config = {
                         'running': True,
                         'remote_host': st.session_state.remote_host,
-                        'remote_directory': st.session_state.remote_directory,
-                        'remote_command': formatted_command,
+                        'scan_remote_directory': st.session_state.scan_remote_directory,
+                        'scan_remote_command': formatted_command,
                         'serial_number': st.session_state.serial_number_pmt2,
                         'pmt_id': 'pmt2',
                         'total_runs': 21,
@@ -2175,7 +2174,7 @@ with tab2:
                 st.info("Syncing PMT 2 scan data from server...")
                 
                 sn = st.session_state.serial_number_pmt2 if st.session_state.serial_number_pmt2.strip() else None
-                success, msg = sync_from_spartan(st.session_state.remote_host, st.session_state.remote_directory, serial_number=sn)
+                success, msg = sync_from_spartan(st.session_state.remote_host, st.session_state.scan_remote_directory, serial_number=sn)
                 
                 if success:
                     st.success(f"✅ {msg}")
@@ -2193,7 +2192,7 @@ with tab2:
                     st.info("Archiving PMT 2 scan data...")
                     success, message = archive_data_on_server(
                         st.session_state.remote_host,
-                        st.session_state.remote_directory,
+                        st.session_state.scan_remote_directory,
                         st.session_state.archive_directory
                     )
                     
@@ -2207,7 +2206,7 @@ with tab2:
                     st.info("Flagging PMT 2 scan data...")
                     success, message = flag_data_on_server(
                         st.session_state.remote_host,
-                        st.session_state.remote_directory,
+                        st.session_state.scan_remote_directory,
                         st.session_state.flag_directory
                     )
                     

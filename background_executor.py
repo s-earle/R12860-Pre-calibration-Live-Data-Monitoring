@@ -73,9 +73,9 @@ def sync_from_spartan(remote_host, remote_dir, local_dir="synced_data/", serial_
         
         # ALSO sync HV analysis plots
         if serial_number:
-            hv_source_path = f"{remote_dir}/HV_CHECK/HV_output_*/{serial_number}/"
+            hv_source_path = f"{remote_dir}/HV_output_*/{serial_number}/"
         else:
-            hv_source_path = f"{remote_dir}/HV_CHECK/HV_output_*/"
+            hv_source_path = f"{remote_dir}/HV_output_*/"
         
         rsync_hv_command = (
             f"rsync -avz --include='*/' "
