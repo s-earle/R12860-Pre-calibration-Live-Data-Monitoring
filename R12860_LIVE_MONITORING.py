@@ -51,8 +51,8 @@ def save_user_config():
 _uc = load_user_config()
 defaults = {
     'remote_host': 'user@spartan.hpc.unimelb.edu.au',
-    'scan_remote_directory': '~/_R12860_DATA_MONITOR/SCAN_DATA',
-    'hv_remote_directory': '~/_R12860_DATA_MONITOR/HV_CHECK',
+    'scan_remote_directory': '/path/to/user/working/directory/_R12860_DATA_MONITOR/SCAN_DATA',
+    'hv_remote_directory': '/path/to/user/working/directory/_R12860_DATA_MONITOR/HV_CHECK',
     'scan_remote_command': 'sbatch ./RUN_PMT_SCAN_DATA_MONITOR.slurm {SN}',
     'hv_remote_command': 'sbatch ./HV_CHECK/RUN_HV_CHECK_TEST.slurm {SN} {HVNOMLL} {HVNOML} {HVNOM} {HVNOMH} {HVNOMHH}',
     'relative_archive': 'archive',
@@ -93,12 +93,14 @@ with col_srv1:
     st.session_state.scan_remote_directory = st.text_input(
         "Scan Remote Directory",
         value=st.session_state.scan_remote_directory,
-        key="remote_dir_global"
+        key="remote_dir_global",
+        help="Replace /path/to/user/working/directory with your working directory"
     )
     st.session_state.hv_remote_directory = st.text_input(
         "HV Remote Directory",
         value=st.session_state.hv_remote_directory,
-        key="hv_remote_dir_global"
+        key="hv_remote_dir_global",
+        help="Replace /path/to/user/working/directory with your working directory"
     )
     
     st.session_state.scan_remote_command = st.text_input(
