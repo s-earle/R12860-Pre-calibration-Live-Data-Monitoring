@@ -1,21 +1,16 @@
 # Working notes
 
-2026016: Currently the GUI is operating at a shortened timeframe which is likely producing bugs when it executes server commands and server sync. 
+2026_02_26: 
 
 ## Future Tasks:
 As of 20260116:
-1. ~~Need a reference histogram - this will probably be good to source from the reference PMT, as well as a good histogram ~~
-2. ~~Having error bars will also be good so the shifter understands if the system is within operating range ~~
-3. A check for darkness - measure the rates - maybe the pedestal ?
-4. How can we use this for cross calibration?
-5. Can we use this for a High Voltage scan? 
-6. Need to implement a if crash - kill server jobs
-7. With reference sensors, can/how use SiPM?
-8. Reference sensors may be different tabs on LHS
-9. Get it all visible on one screen
-10. Faster - 2 jobs that run -- first one runs 10% of the data to quickly send the charge info and the the 2nd is the whole lot?
-11. ~~Auto-stop~~ / and not scancel all jobs for user - just job number
-12. Add ch4
+1. Re-implement the refernce histogram overlay
+2. Implement a signal-to-noise ratio measurement for dar worthyness check - add this to the "helathy/poor" condition
+3. An overall plot/diagram showing the "helathy/poor" condition in relation to the PMT positioning
+4. The HV Check plot needs to be finished and tested, report errors etc
+5. Analysis methods need to align with actual analysis
+6. Fit data needs to be reported on the charge distributions
+7. Channel 4 needs to be uncommented for the refernce PMT data use
 
 ## HV Check Concept/Plan
 User enters SN and HV_NOMINAL value 
