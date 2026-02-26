@@ -53,6 +53,7 @@ cd pyrate
 
 source setup.sh
 ```
+Use the master branch from pyrate.
 
 **Live-Monitoring script Set-up**
 ```
@@ -60,9 +61,30 @@ cd user/project/directory
 
 ```
 If working on Spartan Unimelb:
-```
-git clone https://github.com/s-earle/R12860-Pre-calibration-Live-Data-Monitoring/tree/main/_server-side_processing_/spartan_hpc_unimelb_slurm
-```
+1. Upload the ```_R12860_DATA_MONITOR ``` directory into your user working directory on the server.
+2. Ensure your working directory has the following structure:
+   ```
+   user/working/directory
+                ├── _R12860_DATA_MONITOR/                 
+                │   ├── HV_CHECK/
+                │   │   └── RUN_HV_CHECK.slurm               
+                │   ├── SCAN_DATA/
+                │   │   └── RUN_PMT_SCAN_DATA_MONITOR.slurm
+                │   └── template_data/       
+                │              
+                │
+                ├── pyrate/               
+                │   └── pyrate_venv/    
+                │       └── bin/           
+                │           └── activate           
+                │
+                └── WaveDumpSaves/                  
+                    └── wavedump_output_*/
+                        └── PMT_SN/
+                            └── wavesave_VARIABLE${VARIABLE}/
+                                └── wave{CHX}save_VARIABLE${VARIABLE}.txt
+   ```
+
 
 
 

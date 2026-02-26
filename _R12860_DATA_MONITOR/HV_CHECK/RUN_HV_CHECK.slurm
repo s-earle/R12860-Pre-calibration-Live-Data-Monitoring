@@ -11,7 +11,7 @@ module -q load ROOT/6.26.10
 module -q unload SciPy-bundle/2022.05
 # SCRIPT_DIR="$(dirname "$(realpath "$0")")"
 SCRIPT_DIR="${SLURM_SUBMIT_DIR}"
-source "${SCRIPT_DIR}/../../pyrate_venv/bin/activate"
+source "${SCRIPT_DIR}/../../pyrate/pyrate_venv/bin/activate"
 
 # First argument is serial number
 SN=$1
