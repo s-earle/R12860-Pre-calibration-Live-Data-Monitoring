@@ -19,10 +19,10 @@ A Streamlit window will open in the installed browser, which can be employed as 
 6. Click Process Data for the appropriate PMT
 7. Once scan has completed, either Flag or archive data depending on data quality - archiving will occur automatically when the next scan begins 
 
-## Set-up Instructions
+## Local Machine Set-Up
 If a new user is configuring the local machine and server for the first time, they must first set-up a ssh-key for the local machine for the server user login that will be used. Github guide is [here](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/generating-a-new-ssh-key-and-adding-it-to-the-ssh-agent).
 
-On the local machine open terminal and execute:
+On the **local** machine open terminal and execute:
 ```
 git clone https://github.com/s-earle/R12860-Pre-calibration-Live-Data-Monitoring
 ```
@@ -40,7 +40,7 @@ streamlit run R12860_LIVE_MONITORING.py --server.port 9602
 ```
 
 
-# Server-side:
+# Server-Side Set-Up:
 Pyrate will need to be installed on the server for the appropriate user. Make a directory for the live monitoring to run and copy the contents of the server-side directory into it. 
 
 **Pyrate**
@@ -55,13 +55,13 @@ source setup.sh
 ```
 Use the master branch from pyrate.
 
-**Live-Monitoring script Set-up**
+## Live-Monitoring script Set-up
 ```
 cd user/project/directory
 
 ```
 If working on Spartan Unimelb:
-1. Upload the ```_R12860_DATA_MONITOR ``` directory into your user working directory on the server.
+1. Upload the ```_R12860_DATA_MONITOR ``` folder from this repo into your user working directory on the server.
 2. Ensure your working directory has the following structure:
    ```
    user/working/directory
