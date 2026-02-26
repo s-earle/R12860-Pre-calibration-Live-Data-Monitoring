@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
-Background executor script for auto-running commands on Spartan HPC
-This script keeps running and waits for commands
+Background executor script for auto-running commands on Spartan HPC.
+Stays alive until the main Streamlit app stops sending heartbeats.
+Picks up any config written with running=True and submits + monitors it.
 """
 
 import subprocess
@@ -9,348 +10,310 @@ import time
 import json
 import os
 import glob
+import re
 from datetime import datetime
 import sys
 
-CONFIG_FILE = sys.argv[1] if len(sys.argv) > 1 else "executor_config.json"
-STATUS_FILE = sys.argv[2] if len(sys.argv) > 2 else "executor_status.json"
-USER_CONFIG_FILE = "user_config.json"
+CONFIG_FILE  = sys.argv[1] if len(sys.argv) > 1 else "executor_config.json"
+STATUS_FILE  = sys.argv[2] if len(sys.argv) > 2 else "executor_status.json"
 
-def load_user_config():
-    if os.path.exists(USER_CONFIG_FILE):
-        try:
-            with open(USER_CONFIG_FILE, 'r') as f:
-                return json.load(f)
-        except:
-            return {}
-    return {}
+HEARTBEAT_FILE    = "app_heartbeat.json"
+HEARTBEAT_TIMEOUT = 15   # seconds — app refreshes every 5 s, so 15 s is safe
 
-def save_user_config(config):
-    with open(USER_CONFIG_FILE, 'w') as f:
-        json.dump(config, f, indent=2)
+
+# ── Helpers ──────────────────────────────────────────────────────────────────
+
+def is_app_alive():
+    if not os.path.exists(HEARTBEAT_FILE):
+        return False
+    try:
+        return (time.time() - os.path.getmtime(HEARTBEAT_FILE)) < HEARTBEAT_TIMEOUT
+    except Exception:
+        return False
+
 
 def load_config():
-    """Load configuration from file"""
-    if os.path.exists(CONFIG_FILE):
-        try:
-            with open(CONFIG_FILE, 'r') as f:
-                return json.load(f)
-        except:
-            return None
-    return None
-
-def save_status(status_data):
-    """Save current status to file"""
-    with open(STATUS_FILE, 'w') as f:
-        json.dump(status_data, f, indent=2)
-
-def sync_from_spartan(remote_host, remote_dir, local_dir="synced_data/", serial_number=None):
-    """Execute rsync command to sync files from scan_output directories AND HV_analysis directories"""
+    if not os.path.exists(CONFIG_FILE):
+        return None
     try:
-        # Sync from scan_output directories
-        # output_dir = os.path.join(script_dir, f"scan_output_{curr_datetime}", SN, f"data_theta{theta}_phi{phi}")
-        if serial_number:
-            source_path = f"{remote_dir}/scan_output_*/{serial_number}"
-        else:
-            source_path = f"{remote_dir}/scan_output_*/"
-        
-        rsync_command = (
-            f"rsync -avz "
-            f"--include='*/' "
-            f"--include='*_charge.png' "
-            f"--include='*_GAIN.txt' "
-            f"--exclude='*' "
-            f"{remote_host}:{source_path} {local_dir}"
-        )
-        
-        result = subprocess.run(
-            rsync_command,
-            shell=True,
-            capture_output=True,
-            text=True,
-            timeout=120
-        )
-        
-        # ALSO sync HV analysis plots
-        if serial_number:
-            hv_source_path = f"{remote_dir}/HV_output_*/{serial_number}/"
-        else:
-            hv_source_path = f"{remote_dir}/HV_output_*/"
-        
-        rsync_hv_command = (
-            f"rsync -avz --include='*/' "
-            f"--include='HV_output_*/' "
-            f"--include='*/data_HV_*/' "
-            f"--include='*_charge.png' "
-            f"--include='*_GAIN.txt' "
-            f"--include='*_gain_vs_hv_loglog.png' "
-            f"--include='*_HV_at_gain_*.txt' "
-            f"--exclude='*' "
-            f"{remote_host}:{hv_source_path} {local_dir}"
-        )
-        
-        result_hv = subprocess.run(
-            rsync_hv_command,
-            shell=True,
-            capture_output=True,
-            text=True,
-            timeout=120
-        )
-        
-        if result.returncode == 0 or result_hv.returncode == 0:
-            sn_msg = f" (SN: {serial_number})" if serial_number else ""
-            return True, f"Synced from scan_output_* and HV_output_*{sn_msg}"
-        else:
-            return False, f"Rsync failed"
-        
-    except Exception as e:
-        return False, f"Sync error: {str(e)}"
+        with open(CONFIG_FILE, 'r') as f:
+            return json.load(f)
+    except Exception:
+        return None
 
 
-def execute_command(remote_host, remote_dir, remote_command, serial_number=None):
-    if serial_number and '{SN}' in remote_command:
-        remote_command = remote_command.replace('{SN}', serial_number)
-    
-    ssh_command = f"ssh {remote_host} 'cd {remote_dir} && {remote_command}'"
-    
+def save_status(data):
+    try:
+        with open(STATUS_FILE, 'w') as f:
+            json.dump(data, f, indent=2)
+    except Exception:
+        pass
+
+
+def get_remote_dir(config):
+    """Return whichever remote directory key is present in this config."""
+    return (config.get('hv_remote_directory')
+            or config.get('scan_remote_directory')
+            or config.get('remote_directory')
+            or '')
+
+
+def get_remote_command(config):
+    """Return whichever remote command key is present in this config."""
+    return (config.get('hv_remote_command')
+            or config.get('scan_remote_command')
+            or config.get('remote_command')
+            or '')
+
+
+def execute_command(remote_host, remote_dir, remote_command):
+    """SSH to remote_host, cd to remote_dir and run remote_command."""
+    ssh_cmd = f"ssh {remote_host} 'cd {remote_dir} && {remote_command}'"
+    print(f"  SSH: {ssh_cmd}")
     try:
         result = subprocess.run(
-            ssh_command,
-            shell=True,
-            capture_output=True,
-            text=True,
-            timeout=120
+            ssh_cmd, shell=True, capture_output=True, text=True, timeout=120
         )
-        
         job_id = None
         if result.returncode == 0 and "Submitted batch job" in result.stdout:
             job_id = result.stdout.strip().split()[-1]
-        
         return result.returncode == 0, result.stdout, result.stderr, job_id
+    except subprocess.TimeoutExpired:
+        return False, "", "SSH command timed out", None
     except Exception as e:
         return False, "", str(e), None
 
+
 def count_data_points(local_dir="synced_data/"):
-    """Count how many data points have been synced"""
+    """Count unique scan/HV data points present locally."""
     if not os.path.exists(local_dir):
         return 0
-    
-    import re
     png_files = glob.glob(f"{local_dir}/**/*_charge.png", recursive=True)
-    
-    unique_points = set()
+    unique = set()
     for f in png_files:
-        match = re.search(r'theta(\d+)_phi(\d+)', f)
-        if match:
-            theta = int(match.group(1))
-            phi = int(match.group(2))
-            unique_points.add((theta, phi))
-        
-        # Also count HV data points
-        hv_match = re.search(r'HV_(\d+)_charge', f)
-        if hv_match:
-            unique_points.add(('HV', hv_match.group(1)))
-    
-    return len(unique_points)
+        m = re.search(r'theta(\d+)_phi(\d+)', f)
+        if m:
+            unique.add(('scan', m.group(1), m.group(2)))
+            continue
+        m = re.search(r'HV_(\d+)_charge', f)
+        if m:
+            unique.add(('hv', m.group(1)))
+    return len(unique)
+
+
+def sync_from_remote(config):
+    """Rsync scan_output_* and HV_output_* from remote to local."""
+    remote_host = config['remote_host']
+    remote_dir  = get_remote_dir(config)
+    sn          = config.get('serial_number')
+    local_dir   = "synced_data/"
+
+    # Scan data
+    src = f"{remote_dir}/scan_output_*/{sn}" if sn else f"{remote_dir}/scan_output_*/"
+    cmd = (f"rsync -avz --include='*/' --include='*_charge.png' "
+           f"--include='*_GAIN.txt' --exclude='*' "
+           f"{remote_host}:{src} {local_dir}")
+    r = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=120)
+
+    # HV data
+    src_hv = f"{remote_dir}/HV_output_*/{sn}/" if sn else f"{remote_dir}/HV_output_*/"
+    cmd_hv = (f"rsync -avz --include='*/' --include='HV_output_*/' "
+              f"--include='*/data_HV_*/' --include='*_charge.png' "
+              f"--include='*_GAIN.txt' --include='*_gain_vs_hv_loglog.png' "
+              f"--include='*_HV_at_gain_*.txt' --exclude='*' "
+              f"{remote_host}:{src_hv} {local_dir}")
+    r_hv = subprocess.run(cmd_hv, shell=True, capture_output=True, text=True, timeout=120)
+
+    ok  = (r.returncode == 0 or r_hv.returncode == 0)
+    msg = "Sync OK" if ok else f"scan rc={r.returncode} hv rc={r_hv.returncode}"
+    return ok, msg
+
+
+def sleep_interruptible(seconds):
+    """
+    Sleep second-by-second, returning False early if:
+      - heartbeat is lost (app closed)
+      - config running flag flipped to False (user stopped)
+    Returns True if the full sleep completed normally.
+    """
+    for _ in range(seconds):
+        if not is_app_alive():
+            print(f"[{datetime.now().strftime('%H:%M:%S')}] Heartbeat lost during sleep.")
+            return False
+        cfg = load_config()
+        if not cfg or not cfg.get('running'):
+            return False
+        time.sleep(1)
+    return True
+
+
+# ── Main loop ─────────────────────────────────────────────────────────────────
 
 def main():
-    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] Background executor started")
-    print("Waiting for commands...")
-    
-    # Initialize status as idle
-    save_status({
-        'running': False,
-        'completed': 0,
-        'total': 0,
-        'message': 'Executor ready, waiting for commands'
-    })
-    
+    print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] "
+          f"Background executor started  config={CONFIG_FILE}")
+    print(f"  Heartbeat timeout: {HEARTBEAT_TIMEOUT}s")
+
+    save_status({'running': False, 'completed': 0, 'total': 0,
+                 'message': 'Executor ready, waiting for commands'})
+
     while True:
         try:
-            config = load_config()
-            
-            if config and config.get('running'):
-                print(f"\n[{datetime.now().strftime('%H:%M:%S')}] Starting live monitoring")
-                
-                # Use hv_remote_directory if present, otherwise use remote_directory
-                remote_dir = config.get('hv_remote_directory') or config.get('remote_directory')
-                
-                # Use hv_remote_command if present, otherwise use remote_command
-                remote_command = config.get('hv_remote_command') or config.get('remote_command')
-                
-                save_status({
-                    'running': True,
-                    'completed': 0,
-                    'total': config['total_runs'],
-                    'message': 'Starting SLURM job on server'
-                })
-                
-                # Execute the SLURM job ONCE
-                print(f"  Submitting SLURM job to {remote_dir}...")
-                print(f"  Command: {remote_command}")
-                exec_success, stdout, stderr, job_id = execute_command(
-                    config['remote_host'],
-                    remote_dir,
-                    remote_command,
-                    serial_number=config.get('serial_number')
-                )
-                
-                if exec_success:
-                    print(f"✓ SLURM job submitted successfully")
-                    if stdout:
-                        print(f"  Output: {stdout.strip()}")
+            # ── Heartbeat check ──────────────────────────────────────────────
+            if not is_app_alive():
+                print(f"[{datetime.now().strftime('%H:%M:%S')}] "
+                      f"No heartbeat — app has exited. Stopping.")
+                save_status({'running': False, 'completed': 0, 'total': 0,
+                             'message': 'Executor stopped: main app exited'})
+                break
 
-                    if job_id:
-                        config['job_ids'] = config.get('job_ids', [])
-                        config['job_ids'].append(job_id)
+            config = load_config()
+
+            # ── Idle — no job yet ─────────────────────────────────────────────
+            if not (config and config.get('running')):
+                time.sleep(2)
+                continue
+
+            # ── Job received ──────────────────────────────────────────────────
+            print(f"\n[{datetime.now().strftime('%H:%M:%S')}] Job received")
+
+            remote_dir = get_remote_dir(config)
+            remote_cmd = get_remote_command(config)
+            total_runs = config.get('total_runs', 21)
+
+            print(f"  remote_dir : {remote_dir}")
+            print(f"  remote_cmd : {remote_cmd}")
+            print(f"  total_runs : {total_runs}")
+
+            # Guard against misconfigured job
+            if not remote_dir or not remote_cmd:
+                print("  ERROR: remote_dir or remote_cmd is empty — check config keys")
+                save_status({'running': False, 'completed': 0, 'total': total_runs,
+                             'message': 'ERROR: missing remote_dir or remote_cmd in config'})
+                config['running'] = False
+                with open(CONFIG_FILE, 'w') as f:
+                    json.dump(config, f, indent=2)
+                time.sleep(2)
+                continue
+
+            save_status({'running': True, 'completed': 0, 'total': total_runs,
+                         'message': 'Submitting SLURM job…'})
+
+            # ── Submit SLURM job ──────────────────────────────────────────────
+            ok, stdout, stderr, job_id = execute_command(
+                config['remote_host'], remote_dir, remote_cmd
+            )
+
+            if ok:
+                print(f"  ✓ Job submitted  job_id={job_id}")
+                if job_id:
+                    config.setdefault('job_ids', []).append(job_id)
+                    with open(CONFIG_FILE, 'w') as f:
+                        json.dump(config, f, indent=2)
+                save_status({'running': True, 'completed': 0, 'total': total_runs,
+                             'message': f'Job submitted (id={job_id}), waiting for data…'})
+            else:
+                print(f"  ✗ Job submission FAILED")
+                print(f"    stdout: {stdout.strip()}")
+                print(f"    stderr: {stderr.strip()}")
+                save_status({'running': True, 'completed': 0, 'total': total_runs,
+                             'message': f'Job submission failed: {stderr.strip()[:120]}'})
+                # Still enter monitoring — sbatch sometimes prints to stderr on success
+
+            # ── Monitoring loop ───────────────────────────────────────────────
+            # Baseline: snapshot existing local files so we only count NEW arrivals
+            baseline    = count_data_points()
+            sync_interval = 30
+            max_cycles  = 720   # 720 × 30 s = 6 hours max
+            wait_cycles = 0
+            new_pts     = 0
+
+            print(f"  Baseline local count: {baseline}  (only new arrivals counted)")
+
+            while True:
+                # Heartbeat check
+                if not is_app_alive():
+                    print(f"[{datetime.now().strftime('%H:%M:%S')}] "
+                          f"Heartbeat lost during monitoring.")
+                    save_status({'running': False, 'completed': new_pts,
+                                 'total': total_runs,
+                                 'message': 'Stopped: main app exited'})
+                    return  # exit the process entirely
+
+                # User-stop check
+                config = load_config()
+                if not config or not config.get('running'):
+                    print(f"[{datetime.now().strftime('%H:%M:%S')}] Stopped by user.")
+                    save_status({'running': False, 'completed': new_pts,
+                                 'total': total_runs,
+                                 'message': 'Stopped by user — ready for new commands'})
+                    break   # back to outer idle loop
+
+                # Sync
+                remote_dir = get_remote_dir(config)
+                print(f"\n[{datetime.now().strftime('%H:%M:%S')}] Syncing from {remote_dir}…")
+                sync_ok, sync_msg = sync_from_remote(config)
+                print(f"  {sync_msg}")
+
+                current = count_data_points()
+                new_pts = current - baseline
+
+                if new_pts > 0:
+                    wait_cycles = 0
+                    print(f"  ✓ {new_pts}/{total_runs} new points collected")
+                    save_status({'running': True, 'completed': new_pts,
+                                 'total': total_runs,
+                                 'message': f'Collected {new_pts}/{total_runs} points'})
+
+                    if new_pts >= total_runs:
+                        print(f"  ✓ All {total_runs} points collected — done!")
+                        sync_from_remote(config)  # final sync
+                        save_status({'running': False, 'completed': total_runs,
+                                     'total': total_runs,
+                                     'message': 'Complete — all data collected'})
+                        config['running'] = False
                         with open(CONFIG_FILE, 'w') as f:
                             json.dump(config, f, indent=2)
-                        print(f"  Saved job ID: {job_id}")
+                        break   # back to outer idle loop
                 else:
-                    print(f"✗ SLURM job submission FAILED")
-                    if stderr:
-                        print(f"  Error: {stderr}")
-                    if stdout:
-                        print(f"  Output: {stdout}")
-                
-                # Monitor for new data points appearing
-                previous_count = 0
-                sync_interval = 30  # Check for new data every 30 seconds
-                max_wait_cycles = 720  # Maximum wait time: 720 * 30s = 6 hours
-                wait_cycles = 0
-                monitoring_active = True
-                
-                while monitoring_active:
-                    # Check if we should stop
-                    config = load_config()
-                    if not config or not config.get('running'):
-                        print(f"[{datetime.now().strftime('%H:%M:%S')}] Monitoring stopped by user")
-                        save_status({
-                            'running': False,
-                            'completed': previous_count,
-                            'total': config.get('total_runs', 0) if config else 0,
-                            'message': 'Stopped by user - Ready for new commands'
-                        })
-                        monitoring_active = False
+                    wait_cycles += 1
+                    print(f"  No new data yet "
+                          f"(cycle {wait_cycles}/{max_cycles}, baseline={baseline}, current={current})")
+                    save_status({'running': True, 'completed': 0,
+                                 'total': total_runs,
+                                 'message': f'Waiting for data… (cycle {wait_cycles}/{max_cycles})'})
+
+                    if wait_cycles >= max_cycles:
+                        print(f"  ⚠ Timeout after {max_cycles * sync_interval}s")
+                        save_status({'running': False, 'completed': new_pts,
+                                     'total': total_runs,
+                                     'message': f'Timeout — only {new_pts}/{total_runs} points'})
+                        config['running'] = False
+                        with open(CONFIG_FILE, 'w') as f:
+                            json.dump(config, f, indent=2)
                         break
-                    
-                    # Use hv_remote_directory if present, otherwise use remote_directory
-                    remote_dir = config.get('hv_remote_directory') or config.get('remote_directory')
-                    
-                    # Sync files
-                    print(f"\n[{datetime.now().strftime('%H:%M:%S')}] Syncing from {remote_dir}...")
-                    sync_success, sync_msg = sync_from_spartan(
-                        config['remote_host'],
-                        remote_dir,
-                        serial_number=config.get('serial_number')
-                    )
-                    print(f"  {sync_msg}")
-                    
-                    # Count data points
-                    current_count = count_data_points()
-                    
-                    if current_count > previous_count:
-                        # New data arrived
-                        print(f"  ✓ New data detected! ({previous_count} → {current_count})")
-                        previous_count = current_count
-                        wait_cycles = 0  # Reset timeout counter on new data
-                        
-                        save_status({
-                            'running': True,
-                            'completed': current_count,
-                            'total': config['total_runs'],
-                            'message': f'Synced {current_count}/{config["total_runs"]} data points',
-                            'last_success': sync_success
-                        })
-                        
-                        # Check if all data points collected
-                        if current_count >= config['total_runs']:
-                            print(f"\n[{datetime.now().strftime('%H:%M:%S')}] ✓ All {config['total_runs']} data points collected!")
-                            
-                            # Final sync before marking complete
-                            sync_from_spartan(
-                                config['remote_host'],
-                                remote_dir,
-                                serial_number=config.get('serial_number')
-                            )
-                            
-                            save_status({
-                                'running': False,
-                                'completed': config['total_runs'],
-                                'total': config['total_runs'],
-                                'message': 'Monitoring complete - All data collected'
-                            })
-                            
-                            config['running'] = False
-                            with open(CONFIG_FILE, 'w') as f:
-                                json.dump(config, f, indent=2)
-                            
-                            monitoring_active = False
-                            break
-                    
-                    else:
-                        # No new data yet
-                        wait_cycles += 1
-                        print(f"  Waiting for new data... ({current_count}/{config['total_runs']} points collected, cycle {wait_cycles}/{max_wait_cycles})")
-                        
-                        save_status({
-                            'running': True,
-                            'completed': current_count,
-                            'total': config['total_runs'],
-                            'message': f'Waiting for data... ({current_count}/{config["total_runs"]})',
-                            'last_success': sync_success
-                        })
-                        
-                        # Check for timeout
-                        if wait_cycles >= max_wait_cycles:
-                            print(f"\n[{datetime.now().strftime('%H:%M:%S')}] ⚠ Timeout: No new data after {max_wait_cycles * sync_interval}s")
-                            save_status({
-                                'running': False,
-                                'completed': current_count,
-                                'total': config['total_runs'],
-                                'message': f'Timeout - Only {current_count}/{config["total_runs"]} points collected'
-                            })
-                            
-                            config['running'] = False
-                            with open(CONFIG_FILE, 'w') as f:
-                                json.dump(config, f, indent=2)
-                            
-                            monitoring_active = False
-                            break
-                    
-                    # Wait before next sync, checking for cancellation each second
-                    print(f"  Waiting {sync_interval} seconds before next sync...")
-                    for _ in range(sync_interval):
-                        config = load_config()
-                        if not config or not config.get('running'):
-                            print(f"\n[{datetime.now().strftime('%H:%M:%S')}] Cancelled during wait")
-                            save_status({
-                                'running': False,
-                                'completed': current_count,
-                                'total': config.get('total_runs', 0) if config else 0,
-                                'message': 'Stopped by user - Ready for new commands'
-                            })
-                            monitoring_active = False
-                            break
-                        time.sleep(1)
-            
-            # Wait before checking again
-            time.sleep(2)
-            
+
+                # Interruptible sleep
+                print(f"  Sleeping {sync_interval}s before next sync…")
+                if not sleep_interruptible(sync_interval):
+                    save_status({'running': False, 'completed': new_pts,
+                                 'total': total_runs,
+                                 'message': 'Stopped: app exited or user cancelled'})
+                    if not is_app_alive():
+                        return  # app died — exit process
+                    break       # user stopped — go idle
+
         except KeyboardInterrupt:
-            print(f"\n[{datetime.now().strftime('%H:%M:%S')}] Executor shutting down...")
-            save_status({
-                'running': False,
-                'completed': 0,
-                'total': 0,
-                'message': 'Executor stopped'
-            })
+            print(f"\n[{datetime.now().strftime('%H:%M:%S')}] KeyboardInterrupt — exiting.")
+            save_status({'running': False, 'completed': 0, 'total': 0,
+                         'message': 'Executor stopped'})
             break
         except Exception as e:
-            print(f"[{datetime.now().strftime('%H:%M:%S')}] Error: {str(e)}")
+            print(f"[{datetime.now().strftime('%H:%M:%S')}] Unhandled error: {e}")
             import traceback
             traceback.print_exc()
             time.sleep(5)
+
 
 if __name__ == "__main__":
     main()

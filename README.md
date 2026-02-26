@@ -10,20 +10,21 @@ streamlit run R12860_LIVE_MONITORING.py --server.port 9602
 ```
 A Streamlit window will open in the installed browser, which can be employed as follows:
 
-1. Click Start under STEP 1: Background Executor
-2. Check Remote server configuration under STEP 2
+1. Click Start under Background Executor
+2. Check Remote server configuration
    a. Ensure ssh keys are configured for the server user login on local machine
-3. Clean-up local data files under STEP 3 - it is recomended to clear all data now
-4. Enter the PMT serial number under STEP 4 and hit 'enter'
-5. Click 'RUN LIVE MONITORING
-6. Once scan has completed, either Flag or archive data depending on data quality - archiving will occur automatically when the next scan begins 
+3. Clean-up local data files under the side tab - it is recomended to clear all data now
+4. Enter the PMT serial number and hit 'enter'
+5. Navigate to either HV Check or Scanning Data
+6. Click Process Data for the appropriate PMT
+7. Once scan has completed, either Flag or archive data depending on data quality - archiving will occur automatically when the next scan begins 
 
 ## Set-up Instructions
 If a new user is configuring the local machine and server for the first time, they must first set-up a ssh-key for the local machine for the server user login that will be used. Github guide is [here](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/generating-a-new-ssh-key-and-adding-it-to-the-ssh-agent).
 
 On the local machine open terminal and execute:
 ```
-git clone https://github.com/s-earle/R12860-Pre-calibration-Live-Data-Monitoring/edit/main/README.md
+git clone https://github.com/s-earle/R12860-Pre-calibration-Live-Data-Monitoring
 ```
 Streamlit will need to be installed:
 ```
@@ -46,7 +47,7 @@ Pyrate will need to be installed on the server for the appropriate user. Make a 
 ```
 cd user/project/directory
 
-git clone pyrate (will insert actual command)
+"clone-pyrate-command"
 
 cd pyrate
 
@@ -57,18 +58,10 @@ source setup.sh
 ```
 cd user/project/directory
 
-mkdir _R12860_LIVE_MONITOR_PROCESSING
-
-cd _R12860_LIVE_MONITOR_PROCESSING
-
 ```
 If working on Spartan Unimelb:
 ```
 git clone https://github.com/s-earle/R12860-Pre-calibration-Live-Data-Monitoring/tree/main/_server-side_processing_/spartan_hpc_unimelb_slurm
-```
-If working on Sukap:
-```
-git clone https://github.com/s-earle/R12860-Pre-calibration-Live-Data-Monitoring/tree/main/_server-side_processing_/sukap_
 ```
 
 

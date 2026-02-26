@@ -15,6 +15,8 @@ from PIL import Image
 import io
 import pandas as pd
 from datetime import datetime
+from heartbeat import write_heartbeat
+write_heartbeat()
 
 SYNC_DATA_DIR = "synced_data/"
 os.makedirs(SYNC_DATA_DIR, exist_ok=True)
@@ -54,7 +56,7 @@ defaults = {
     'scan_remote_directory': '/path/to/user/working/directory/_R12860_DATA_MONITOR/SCAN_DATA',
     'hv_remote_directory': '/path/to/user/working/directory/_R12860_DATA_MONITOR/HV_CHECK',
     'scan_remote_command': 'sbatch ./RUN_PMT_SCAN_DATA_MONITOR.slurm {SN}',
-    'hv_remote_command': 'sbatch ./HV_CHECK/RUN_HV_CHECK_TEST.slurm {SN} {HVNOMLL} {HVNOML} {HVNOM} {HVNOMH} {HVNOMHH}',
+    'hv_remote_command': 'sbatch ./HV_CHECK/RUN_HV_CHECK.slurm {SN} {HVNOMLL} {HVNOML} {HVNOM} {HVNOMH} {HVNOMHH}',
     'relative_archive': 'archive',
     'relative_flag': 'FLAG',
     'serial_number_pmt1': '',
@@ -550,13 +552,20 @@ def start_background_executor(pmt_id="pmt1"):
     config_file = CONFIG_FILE_PMT1 if pmt_id == "pmt1" else CONFIG_FILE_PMT2
     status_file = STATUS_FILE_PMT1 if pmt_id == "pmt1" else STATUS_FILE_PMT2
     pid_file = EXECUTOR_PID_FILE_PMT1 if pmt_id == "pmt1" else EXECUTOR_PID_FILE_PMT2
+
+    # Only remove the PID file if the process it points to is actually dead.
+    # Never remove the config or status files here — the caller writes them.
+    if os.path.exists(pid_file):
+        try:
+            with open(pid_file, 'r') as f:
+                old_pid = int(f.read().strip())
+            os.kill(old_pid, 0)          # raises OSError if process is gone
+            # Process still alive — nothing to do, return its PID
+            return True, old_pid
+        except (OSError, ValueError):
+            os.remove(pid_file)          # stale PID file, clean it up
+
     try:
-        for file in [config_file, status_file, pid_file]:
-            if os.path.exists(file):
-                try:
-                    os.remove(file)
-                except Exception as e:
-                    print(f"Warning: Could not remove {file}: {e}")
         process = subprocess.Popen(
             [sys.executable, "background_executor.py", config_file, status_file],
             stdout=subprocess.DEVNULL,
@@ -712,14 +721,34 @@ cleanup_old_data("synced_data/", st.session_state.cleanup_time_hours)
 
 status_pmt1 = load_status("pmt1")
 status_pmt2 = load_status("pmt2")
-is_running_pmt1 = bool(status_pmt1 and status_pmt1.get('running', False))
-is_running_pmt2 = bool(status_pmt2 and status_pmt2.get('running', False))
+
+def load_config_file(pmt_id="pmt1"):
+    config_file = CONFIG_FILE_PMT1 if pmt_id == "pmt1" else CONFIG_FILE_PMT2
+    if os.path.exists(config_file):
+        try:
+            with open(config_file, 'r') as f:
+                return json.load(f)
+        except:
+            return None
+    return None
+
+config_pmt1 = load_config_file("pmt1")
+config_pmt2 = load_config_file("pmt2")
+is_running_pmt1 = bool(config_pmt1 and config_pmt1.get('running', False))
+is_running_pmt2 = bool(config_pmt2 and config_pmt2.get('running', False))
 executor_alive_pmt1 = check_executor_running("pmt1")
 executor_alive_pmt2 = check_executor_running("pmt2")
 
+if "executors_started" not in st.session_state:
+    for _pmt_id in ["pmt1", "pmt2"]:
+        if not check_executor_running(_pmt_id):
+            start_background_executor(_pmt_id)
+    st.session_state.executors_started = True
+
 # Auto-refresh if either is running
-if is_running_pmt1 or is_running_pmt2:
-    st_autorefresh(interval=5000, key="datarefresh")
+# if is_running_pmt1 or is_running_pmt2:
+#     st_autorefresh(interval=5000, key="datarefresh")
+st_autorefresh(interval=5000, key="datarefresh")
 
 # CSS for grid buttons
 st.markdown("""
@@ -1160,6 +1189,14 @@ with tab1:
                         'job_ids': []
                     }
                     save_config(config, "pmt1")
+                    # if not check_executor_running("pmt1"):
+                    #     ok, result = start_background_executor("pmt1")
+                    #     if ok:
+                    #         st.success(f"✅ Background executor started (PID: {result})")
+                    #     else:
+                    #         st.error(f"❌ Could not start executor: {result}")
+                    # else:
+                    #     st.info("ℹ️ Executor already running — config updated.")
                     st.success("HV Check started for PMT 1!")
                     time.sleep(2)
                     st.rerun()
@@ -1454,6 +1491,14 @@ with tab1:
                         'job_ids': []
                     }
                     save_config(config, "pmt2")
+                    # if not check_executor_running("pmt2"):
+                    #     ok, result = start_background_executor("pmt2")
+                    #     if ok:
+                    #         st.success(f"✅ Background executor started (PID: {result})")
+                    #     else:
+                    #         st.error(f"❌ Could not start executor: {result}")
+                    # else:
+                    #     st.info("ℹ️ Executor already running — config updated.")
                     st.success("HV Check started for PMT 2!")
                     time.sleep(2)
                     st.rerun()
@@ -1530,7 +1575,7 @@ with tab1:
             with col_arch_pmt2:
                 if st.button("📦 Archive Data (PMT 2)", type="secondary", use_container_width=True, key="archive_hv_pmt2"):
                     st.info("Archiving PMT 2 HV data...")
-                    success, message = archive_data_on_server(
+                    success, message = archive_HV_data_on_server(
                         st.session_state.hv_remote_host,
                         st.session_state.hv_remote_directory,
                         st.session_state.hv_archive_directory
@@ -1544,7 +1589,7 @@ with tab1:
             with col_flag_pmt2:
                 if st.button("⚠️ Flag as Abnormal (PMT 2)", type="primary", use_container_width=True, key="flag_hv_pmt2"):
                     st.info("Flagging PMT 2 HV data...")
-                    success, message = flag_data_on_server(
+                    success, message = flag_HV_data_on_server(
                         st.session_state.hv_remote_host,
                         st.session_state.hv_remote_directory,
                         st.session_state.hv_flag_directory
@@ -1684,42 +1729,45 @@ with tab2:
     st.write("Full Scan")
     st.caption("Run complete 21-point scans for both PMTs")
     
-    # Background Executor Status
+    # REPLACE the existing sidebar executor section with this:
     st.sidebar.header("Background Executor")
-    st.sidebar.caption("This runs in the background to ensure that the software can regularly sync with the server")
-    if executor_alive_pmt1 or executor_alive_pmt2:
-        st.sidebar.success(f"✅ Running (PMT1: {executor_alive_pmt1}, PMT2: {executor_alive_pmt2})")
+    st.sidebar.caption("Runs continuously in the background — start once, leave running")
+
+    # executor_alive_pmt1 = check_executor_running("pmt1")
+    # executor_alive_pmt2 = check_executor_running("pmt2")
+
+    if executor_alive_pmt1 and executor_alive_pmt2:
+        st.sidebar.success("✅ Both executors running")
+    elif executor_alive_pmt1 or executor_alive_pmt2:
+        st.sidebar.warning(f"⚠️ PMT1: {'✅' if executor_alive_pmt1 else '❌'}  PMT2: {'✅' if executor_alive_pmt2 else '❌'}")
     else:
-        st.sidebar.warning("⚠️ Not Running")
+        st.sidebar.error("❌ Executors not running — click Start")
 
-    col_exec1, col_exec2 = st.sidebar.columns(2)
-    with col_exec1:
-        both_alive = executor_alive_pmt1 and executor_alive_pmt2
-        if st.sidebar.button("▶️ Start", disabled=both_alive, use_container_width=True, key="start_exec_tab2"):
-            start_background_executor("pmt1")
-            start_background_executor("pmt2")
-            st.rerun()
-            if success:
-                st.success(f"✅ Executor started (PID: {result})")
-                time.sleep(1)
-                st.rerun()
-            else:
-                st.error(f"❌ Failed to start: {result}")
+    if st.sidebar.button("▶️ Start Executors", 
+                        disabled=(executor_alive_pmt1 and executor_alive_pmt2),
+                        use_container_width=True,
+                        key="start_exec_sidebar"):
+        for pmt_id in ["pmt1", "pmt2"]:
+            if not check_executor_running(pmt_id):
+                ok, result = start_background_executor(pmt_id)
+                if ok:
+                    st.sidebar.success(f"✅ {pmt_id.upper()} executor started (PID: {result})")
+                else:
+                    st.sidebar.error(f"❌ {pmt_id.upper()} failed: {result}")
+        time.sleep(1)
+        st.rerun()
 
-    with col_exec2:
-        either_alive = executor_alive_pmt1 or executor_alive_pmt2
-        if st.sidebar.button("⏹️ Stop", disabled=not either_alive, use_container_width=True, key="stop_exec_tab2"):
-            stop_background_executor("pmt1")
-            stop_background_executor("pmt2")
-            st.rerun()
-            if success:
-                st.success(f"✅ {msg}")
-                time.sleep(1)
-                st.rerun()
-            else:
-                st.error(f"❌ Failed: {msg}")
+    if st.sidebar.button("⏹️ Stop Executors",
+                        disabled=not (executor_alive_pmt1 or executor_alive_pmt2),
+                        use_container_width=True,
+                        key="stop_exec_sidebar"):
+        stop_background_executor("pmt1")
+        stop_background_executor("pmt2")
+        time.sleep(1)
+        st.rerun()
 
-    if st.sidebar.button("Reset All", type="secondary", use_container_width=True, key="reset_tab2"):
+    if st.sidebar.button("🔄 Reset All", type="secondary", 
+                        use_container_width=True, key="reset_sidebar"):
         stop_background_executor("pmt1")
         stop_background_executor("pmt2")
         for file in [CONFIG_FILE_PMT1, CONFIG_FILE_PMT2,
@@ -1727,13 +1775,11 @@ with tab2:
                     EXECUTOR_PID_FILE_PMT1, EXECUTOR_PID_FILE_PMT2]:
             if os.path.exists(file):
                 os.remove(file)
-        
         st.sidebar.success("Reset complete!")
         time.sleep(1)
         st.rerun()
 
     st.sidebar.divider()
-
     # Server Configuration for Data Monitoring
     # with st.expander("🔧 Data Monitoring Server Configuration"):
     #     col_dm_config1, col_dm_config2 = st.columns(2)
@@ -1829,16 +1875,18 @@ with tab2:
             else:
                 st.warning("Data directory doesn't exist")
 
-    for pmt_label, pmt_status, pmt_running in [
-        ("PMT 1", status_pmt1, is_running_pmt1),
-        ("PMT 2", status_pmt2, is_running_pmt2)
+    for pmt_label, pmt_id, pmt_running in [
+        ("PMT 1", "pmt1", is_running_pmt1),
+        ("PMT 2", "pmt2", is_running_pmt2)
     ]:
-        if pmt_running and pmt_status:
-            st.info(f"{pmt_label}: {pmt_status.get('message', 'Processing...')}")
-            if pmt_status.get('total'):
-                progress = pmt_status.get('completed', 0) / pmt_status['total']
-                st.progress(progress)
-                st.write(f"{pmt_label} Completed: {pmt_status.get('completed', 0)}/{pmt_status['total']}")
+        if pmt_running:
+            fresh_status = load_status(pmt_id)
+            if fresh_status:
+                st.info(f"{pmt_label}: {fresh_status.get('message', 'Processing...')}")
+                if fresh_status.get('total'):
+                    progress = fresh_status.get('completed', 0) / fresh_status['total']
+                    st.progress(progress)
+                    st.write(f"{pmt_label} Completed: {fresh_status.get('completed', 0)}/{fresh_status['total']}")
 
     st.divider()
 
@@ -1889,28 +1937,27 @@ with tab2:
                 button_disabled_scan_pmt1 = (is_running_pmt1 or not executor_alive_pmt1 or 
                                             not st.session_state.serial_number_pmt1.strip())
                 
-                if st.button("PROCESS SCAN DATA  (PMT 1)\nAutomatically Process Data and Sync", 
-                            type="primary", 
+                if st.button("PROCESS SCAN DATA  (PMT 1)\nAutomatically Process Data and Sync",
+                            type="primary",
                             use_container_width=True,
-                            disabled=button_disabled_scan_pmt1, 
+                            disabled=button_disabled_scan_pmt1,
                             key="start_scan_pmt1"):
+
                     st.info("Archiving existing data on server before starting...")
                     success, message = archive_data_on_server(
                         st.session_state.remote_host,
                         st.session_state.scan_remote_directory,
                         st.session_state.archive_directory
                     )
-                    
                     if success:
                         st.success(f"✅ {message}")
                     else:
                         st.warning(f"⚠️ Archive warning: {message}")
-                    
-                    # Format command with serial number
+
                     formatted_command = st.session_state.scan_remote_command.format(
                         SN=st.session_state.serial_number_pmt1
                     )
-                    
+
                     config = {
                         'running': True,
                         'remote_host': st.session_state.remote_host,
@@ -1923,6 +1970,17 @@ with tab2:
                         'job_ids': []
                     }
                     save_config(config, "pmt1")
+
+                    # *** START EXECUTOR IF NOT ALREADY RUNNING ***
+                    # if not check_executor_running("pmt1"):
+                    #     ok, result = start_background_executor("pmt1")
+                    #     if ok:
+                    #         st.success(f"✅ Background executor started (PID: {result})")
+                    #     else:
+                    #         st.error(f"❌ Could not start executor: {result}")
+                    # else:
+                    #     st.info("ℹ️ Executor already running — config updated.")
+
                     st.success("Full scan started for PMT 1!")
                     time.sleep(2)
                     st.rerun()
@@ -2083,28 +2141,27 @@ with tab2:
                 button_disabled_scan_pmt2 = (is_running_pmt2 or not executor_alive_pmt2 or 
                                             not st.session_state.serial_number_pmt2.strip())
                 
-                if st.button("PROCESS SCAN DATA  (PMT 2)\nAutomatically Process Data and Sync", 
-                            type="primary", 
+                if st.button("PROCESS SCAN DATA  (PMT 2)\nAutomatically Process Data and Sync",
+                            type="primary",
                             use_container_width=True,
-                            disabled=button_disabled_scan_pmt2, 
+                            disabled=button_disabled_scan_pmt2,
                             key="start_scan_pmt2"):
+
                     st.info("Archiving existing data on server before starting...")
                     success, message = archive_data_on_server(
                         st.session_state.remote_host,
                         st.session_state.scan_remote_directory,
                         st.session_state.archive_directory
                     )
-                    
                     if success:
                         st.success(f"✅ {message}")
                     else:
                         st.warning(f"⚠️ Archive warning: {message}")
-                    
-                    # Format command with serial number
+
                     formatted_command = st.session_state.scan_remote_command.format(
                         SN=st.session_state.serial_number_pmt2
                     )
-                    
+
                     config = {
                         'running': True,
                         'remote_host': st.session_state.remote_host,
@@ -2117,9 +2174,21 @@ with tab2:
                         'job_ids': []
                     }
                     save_config(config, "pmt2")
+
+                    # *** START EXECUTOR IF NOT ALREADY RUNNING ***
+                    # if not check_executor_running("pmt2"):
+                    #     ok, result = start_background_executor("pmt2")
+                    #     if ok:
+                    #         st.success(f"✅ Background executor started (PID: {result})")
+                    #     else:
+                    #         st.error(f"❌ Could not start executor: {result}")
+                    # else:
+                    #     st.info("ℹ️ Executor already running — config updated.")
+
                     st.success("Full scan started for PMT 2!")
                     time.sleep(2)
                     st.rerun()
+
             
             st.caption("This will run a complete 21-point scan for PMT 2")
             

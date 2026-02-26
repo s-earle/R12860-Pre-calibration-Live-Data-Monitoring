@@ -83,20 +83,27 @@ CorrectedWaveform_CH<PMT_CHANNEL>:
 
 PulseRangeStop_CH<channels>:
     algorithm: Calculator
-    equation: PulseStart_CH<channels> + 50
+    equation: A + 50 
+    input:
+        A: PulseStart_CH<channels>
 
 PulseRangeStart_CH<channels>:
     algorithm: Calculator
-    equation: PulseStart_CH<channels> - 10
+    equation: A - 10
+    input: 
+        A: PulseStart_CH<channels>
 
 PromptRangeStart_CH<channels>:
     algorithm: Calculator
-    equation: PeakLocation_CH<channels> -10 
+    equation: A - 10
+    input:
+        A: PeakLocation_CH<channels>
 
 DelayedRangeStop_CH<channels>:
     algorithm: Calculator
     equation: A + 20
-    input: PeakLocation_CH<channels> + 20 
+    input: 
+        A : PeakLocation_CH<channels>
 
 LasTrigRangeStop:
     algorithm: Calculator

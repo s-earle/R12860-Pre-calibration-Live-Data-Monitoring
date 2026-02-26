@@ -41,9 +41,9 @@ print(f"Looking for ROOT files for SN={SN}, theta={theta}, phi={phi}")
 # # search_pattern = f"/data/gpfs/projects/punim1378/earles/ROOT_scan_data_saves/{SN}/{curr_date}/scan_{curr_date}_{SN}_theta{theta}_phi{phi}.root"
 # # search_pattern = os.path.join(script_dir, "ROOT_scan_data_saves", SN, curr_date, f"scan_{curr_date}_{SN}_theta{theta}_phi{phi}.root")
 
-# search_pattern = os.path.join(script_dir, "ROOT_scan_data_saves", f"pyrate_output_*, SN, f"scan_*_{SN}_theta{theta}_phi{phi}.root")
+search_pattern = os.path.join(script_dir, "ROOT_SCAN_DATA_saves", f"pyrate_output_*", SN, f"scan_*_{SN}_theta{theta}_phi{phi}.root")
 
-search_pattern = os.path.join(script_dir, "ROOT_scan_data_saves", SN, "20260219", f"scan_20260219_{SN}_theta{theta}_phi{phi}.root")
+# search_pattern = os.path.join(script_dir, "ROOT_scan_data_saves", SN, "20260219", f"scan_20260219_{SN}_theta{theta}_phi{phi}.root")
 files = glob.glob(search_pattern)
 
 if not files:

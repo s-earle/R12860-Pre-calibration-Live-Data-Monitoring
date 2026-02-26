@@ -12,7 +12,7 @@ module -q unload SciPy-bundle/2022.05
 
 # SCRIPT_DIR="$(dirname "$(realpath "$0")")"
 SCRIPT_DIR="${SLURM_SUBMIT_DIR}"
-source "${SCRIPT_DIR}/pyrate_venv/bin/activate"
+source "${SCRIPT_DIR}/../../pyrate/pyrate_venv/bin/activate"
 
 # Get serial number from command line argument
 SN=$1
@@ -25,13 +25,13 @@ export TZ='Asia/Tokyo'
 date_today=$(date +%Y%m%d)
 datetime=$(date +%Y%m%d_%H%M%S)
 
-TEMPLATE_FILE="${SCRIPT_DIR}/config/R12860_full_live_monitor_speed_template.yaml"
+TEMPLATE_FILE="${SCRIPT_DIR}/config/R12860_scan_data_process.yaml"
 # TEMPLATE_FILE="${SCRIPT_DIR}/config/R12860_scan_template.yaml"
-YAML_OUTPUT_DIR="${SCRIPT_DIR}/config/test_yamls/${SN}"
+YAML_OUTPUT_DIR="${SCRIPT_DIR}/config/pyrate_configs/${SN}"
 # YAML_OUTPUT_DIR="${SCRIPT_DIR}/config/temp_yaml_configs/${SN}"
 mkdir -p "$YAML_OUTPUT_DIR"
 
-ROOT_PARENT_DIR="${SCRIPT_DIR}/ROOT_scan_data_saves/pyrate_output_${datetime}/${SN}"
+ROOT_PARENT_DIR="${SCRIPT_DIR}/ROOT_SCAN_DATA_saves/pyrate_output_${datetime}/${SN}"
 mkdir -p "$ROOT_PARENT_DIR"
 
 WAVEDUMP_BASE="${SCRIPT_DIR}/../../WaveDumpSaves"
